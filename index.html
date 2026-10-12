@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#183b35" />
+  <meta name="description" content="Lái xe chở thanh long qua cầu, né chướng ngại vật và giữ trái cây trên thùng xe. Mini game 3D miễn phí." />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <title>Qua cầu · Chuyến xe thanh long</title>
+  <script type="module" crossorigin src="./assets/index-BywdpqWp.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DMGSqeNX.css">
+</head>
+<body>
+  <main id="game" aria-label="Game 3D Chuyến xe thanh long">
+    <div id="canvas"></div>
+    <div class="vignette"></div>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Qua cầu — trang đầu"><span class="brand-mark">q<span>c</span></span><span>QUA CẦU<small>CHUYẾN XE THANH LONG</small></span></a>
+      <button id="sound" class="icon-button" aria-label="Bật âm thanh" title="Âm thanh">♪<span class="sound-off">/</span></button>
+      <button id="pause" class="icon-button hidden" aria-label="Tạm dừng">Ⅱ</button>
+    </header>
+    <section id="hud" class="hidden" aria-label="Trạng thái chuyến xe">
+      <div class="cargo-stat"><span class="fruit-icon">✦</span><div><strong id="cargo">24</strong><span> / 24</span><small>THANH LONG</small></div></div>
+      <div class="route-stat"><div><span>VỀ ĐÍCH</span><strong id="distance">0%</strong></div><div class="progress-track"><div id="progress"></div></div></div>
+    </section>
+    <div id="impact" aria-live="polite"></div>
+    <section id="intro" class="screen">
+      <div class="eyebrow"><span></span> MINI GAME 3D · CHƠI NGAY</div>
+      <h1>Một cây cầu.<br>Một chuyến xe.<br><em>Đầy thanh long.</em></h1>
+      <p class="intro-description">Đường hơi khó. Hàng hơi dễ rơi.<br>Giữ tay lái, đưa mùa ngọt về nhà.</p>
+      <div class="intro-bottom">
+        <div class="trip-note"><span>01</span><div>CHUYẾN HÀNG ĐẦU TIÊN<small>240 mét cầu · 24 quả thanh long</small></div><span class="trip-arrow">↗</span></div>
+        <button id="start" class="primary-button" disabled><span>ĐANG XẾP HÀNG…</span><span>→</span></button>
+        <p class="input-hint">Chạm giữ trái / phải để lái <span>·</span> Máy tính: A / D hoặc ← / →</p>
+      </div>
+    </section>
+    <section id="controls" class="hidden" aria-label="Điều khiển">
+      <div class="drive-hint" id="drive-hint">GIỮ NÚT ĐỂ LÁI · NÉ VẬT CẢN</div>
+      <div class="control-row"><button id="left" class="steer" aria-label="Lái sang trái">&#x25C0;&#xFE0E;</button><button id="brake" aria-label="Giữ để đi chậm"><span>↓</span>ĐI CHẬM</button><button id="right" class="steer" aria-label="Lái sang phải">&#x25B6;&#xFE0E;</button></div>
+    </section>
+    <section id="pause-screen" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+      <div class="modal-card"><div class="eyebrow">NGHỈ MỘT NHỊP</div><h2 id="pause-title">Chuyến xe vẫn đợi.</h2><p>Hít thở rồi mình qua cầu tiếp nhé.</p><button id="resume" class="primary-button">TIẾP TỤC <span>→</span></button><button id="restart-pause" class="text-button">Chơi lại từ đầu</button></div>
+    </section>
+    <section id="end-screen" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="end-title">
+      <div class="modal-card"><div id="end-eyebrow" class="eyebrow">CHUYẾN XE HOÀN THÀNH</div><div id="end-medal">✦</div><h2 id="end-title">Mùa ngọt về nhà!</h2><p id="end-description"></p><div class="result"><strong id="end-count">24</strong><span>/ 24 quả đến nơi</span></div><div class="best" id="best"></div><button id="again" class="primary-button">THÊM MỘT CHUYẾN <span>↻</span></button><button id="home" class="text-button">Về màn hình đầu</button></div>
+    </section>
+    <footer id="footer">MỘT CHÚT KHÉO LÉO. MỘT CHUYẾN ĐI VUI.</footer>
+    <div id="error" class="hidden" role="alert"></div>
+  </main>
+</body>
+</html>
