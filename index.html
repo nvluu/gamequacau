@@ -7,8 +7,8 @@
   <meta name="description" content="Lái xe chở thanh long qua cầu, né chướng ngại vật và giữ trái cây trên thùng xe. Mini game 3D miễn phí." />
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   <title>Qua cầu · Chuyến xe thanh long</title>
-  <script type="module" crossorigin src="./assets/index-BywdpqWp.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-DMGSqeNX.css">
+  <script type="module" crossorigin src="./assets/index-CqQzMAW7.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-CaT8TRl4.css">
 </head>
 <body>
   <main id="game" aria-label="Game 3D Chuyến xe thanh long">
@@ -16,8 +16,8 @@
     <div class="vignette"></div>
     <header class="topbar">
       <a class="brand" href="./" aria-label="Qua cầu — trang đầu"><span class="brand-mark">q<span>c</span></span><span>QUA CẦU<small>CHUYẾN XE THANH LONG</small></span></a>
-      <button id="sound" class="icon-button" aria-label="Bật âm thanh" title="Âm thanh">♪<span class="sound-off">/</span></button>
-      <button id="pause" class="icon-button hidden" aria-label="Tạm dừng">Ⅱ</button>
+      <button id="sound" class="icon-button" aria-label="Tắt âm thanh" title="Âm thanh">♪<span class="sound-off hidden">/</span></button>
+      <button id="pause" class="icon-button hidden" aria-label="Tạm dừng"><svg width="12" height="14" viewBox="0 0 12 14" aria-hidden="true"><rect width="4" height="14" rx="1" fill="currentColor"/><rect x="8" width="4" height="14" rx="1" fill="currentColor"/></svg></button>
     </header>
     <section id="hud" class="hidden" aria-label="Trạng thái chuyến xe">
       <div class="cargo-stat"><span class="fruit-icon">✦</span><div><strong id="cargo">24</strong><span> / 24</span><small>THANH LONG</small></div></div>
@@ -31,12 +31,11 @@
       <div class="intro-bottom">
         <div class="trip-note"><span>01</span><div>CHUYẾN HÀNG ĐẦU TIÊN<small>240 mét cầu · 24 quả thanh long</small></div><span class="trip-arrow">↗</span></div>
         <button id="start" class="primary-button" disabled><span>ĐANG XẾP HÀNG…</span><span>→</span></button>
-        <p class="input-hint">Chạm giữ trái / phải để lái <span>·</span> Máy tính: A / D hoặc ← / →</p>
+        <p class="input-hint">Chạm rồi kéo trái / phải để lái <span>·</span> Máy tính: A / D hoặc ← / →</p>
       </div>
     </section>
     <section id="controls" class="hidden" aria-label="Điều khiển">
-      <div class="drive-hint" id="drive-hint">GIỮ NÚT ĐỂ LÁI · NÉ VẬT CẢN</div>
-      <div class="control-row"><button id="left" class="steer" aria-label="Lái sang trái">&#x25C0;&#xFE0E;</button><button id="brake" aria-label="Giữ để đi chậm"><span>↓</span>ĐI CHẬM</button><button id="right" class="steer" aria-label="Lái sang phải">&#x25B6;&#xFE0E;</button></div>
+      <div class="drive-hint" id="drive-hint">CHẠM & KÉO TRÁI / PHẢI ĐỂ LÁI <span>↔</span></div>
     </section>
     <section id="pause-screen" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
       <div class="modal-card"><div class="eyebrow">NGHỈ MỘT NHỊP</div><h2 id="pause-title">Chuyến xe vẫn đợi.</h2><p>Hít thở rồi mình qua cầu tiếp nhé.</p><button id="resume" class="primary-button">TIẾP TỤC <span>→</span></button><button id="restart-pause" class="text-button">Chơi lại từ đầu</button></div>
