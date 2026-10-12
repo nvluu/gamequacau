@@ -25,7 +25,7 @@ const audio = new GameAudio();
 const input = { left: false, right: false };
 let drag: { id:number; startX:number; carX:number; targetX:number } | undefined;
 let turnCooldown=0, turnJolts=0, suppressClick=false;
-const heldKeys = new Set<string>();
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#c5dfd7');
 scene.fog = new THREE.Fog('#c5dfd7', 35, 145);
@@ -419,15 +419,23 @@ function step() {
   else if(retained <= 0) finish(false);
 }
 function resetInput() {
-  input.left=input.right=false;heldKeys.clear();suppressClick ||= !!drag;const pointer=drag?.id;drag=undefined;
+  input.left=input.right=false;suppressClick ||= !!drag;const pointer=drag?.id;drag=undefined;
   if(pointer!==undefined&&$('game').hasPointerCapture(pointer))$('game').releasePointerCapture(pointer);
 }
-function syncInput() {
-  input.left=heldKeys.has('arrowleft')||heldKeys.has('a');input.right=heldKeys.has('arrowright')||heldKeys.has('d');
+function stopIntroVideo() {
+  $('video-card').querySelector('iframe')?.remove();$('video-play').classList.remove('hidden');
+}
+function playIntroVideo() {
+  if(mode!=='intro'||$('video-card').querySelector('iframe'))return;
+  const frame=document.createElement('iframe');
+  frame.src='https://www.youtube-nocookie.com/embed/m5MuKcskVaU?autoplay=1&playsinline=1&rel=0';
+  frame.title='Video xe chở thanh long';frame.allow='autoplay; encrypted-media; picture-in-picture; fullscreen';
+  frame.allowFullscreen=true;frame.referrerPolicy='strict-origin-when-cross-origin';
+  $('video-play').classList.add('hidden');$('video-card').appendChild(frame);
 }
 function startGame() {
   if(!ready) return;
-  resetPhysics(); mode='playing';
+  stopIntroVideo();resetPhysics(); mode='playing';
   ['intro','end-screen','pause-screen','footer'].forEach(id=>$(id).classList.add('hidden'));
   ['hud','controls','pause'].forEach(id=>$(id).classList.remove('hidden'));
   camera.position.set(0,6.8,10.7); camera.lookAt(0,.7,-7);
@@ -474,21 +482,19 @@ function bindControls() {
   const release=(e:PointerEvent)=>{if(drag?.id===e.pointerId)drag=undefined;};
   surface.addEventListener('pointerup',release);surface.addEventListener('pointercancel',release);surface.addEventListener('lostpointercapture',release);
   surface.addEventListener('contextmenu',e=>e.preventDefault());
-  window.addEventListener('keydown',e=> {
-    const key=e.key.toLowerCase();
-    if(key==='escape'||key==='p'){if(e.repeat)return;if(mode==='playing')pauseGame();else if(mode==='paused')resumeGame();return;}
-    if(['arrowleft','arrowright','a','d'].includes(key)&&mode==='playing'){e.preventDefault();heldKeys.add(key);syncInput();}
-  });
-  window.addEventListener('keyup',e=>{heldKeys.delete(e.key.toLowerCase());syncInput();});
   window.addEventListener('blur',()=>{resetInput();pauseGame();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
+  $('video-play').addEventListener('click',playIntroVideo);
+  const posterImage=$('video-play').querySelector('img')!;
+  posterImage.addEventListener('error',()=>posterImage.classList.add('hidden'));
+  if(posterImage.complete&&posterImage.naturalWidth===0)posterImage.classList.add('hidden');
   $('start').addEventListener('click',startGame);$('again').addEventListener('click',startGame);
   $('restart-pause').addEventListener('click',startGame);$('pause').addEventListener('click',pauseGame);
   $('resume').addEventListener('click',resumeGame);$('home').addEventListener('click',showHome);
 
 }
 function resize() {
-  const {width,height}=$('canvas').getBoundingClientRect(); camera.aspect=width/height; camera.updateProjectionMatrix(); renderer.setSize(width,height);
+  const {width,height}=$('canvas').getBoundingClientRect(); camera.aspect=width/height; camera.updateProjectionMatrix(); renderer.setSize(width,height);if(ready&&mode==='intro')renderer.render(scene,camera);
 }
 function renderInterpolated(alpha: number) {
   // Simulation remains fixed-rate. Interpolate ALL moving visuals to the same render timestamp.
@@ -506,6 +512,7 @@ function animate() {
   renderer.setAnimationLoop((time: number)=> {
     const dt=Math.min(Math.max((time-lastTime)/1000,0),.1);lastTime=time;
     frameMs=frameMs*.95+dt*1000*.05;
+    if(mode==='intro'&&elapsed>=1.3)return;
     if(mode==='playing'&&elapsed>2&&frameMs>32)slowFrames++;else slowFrames=Math.max(0,slowFrames-1);
     if(slowFrames>60&&pixelRatio>.85){pixelRatio=.85;renderer.setPixelRatio(pixelRatio);resize();slowFrames=0;}
     if(mode==='playing') {

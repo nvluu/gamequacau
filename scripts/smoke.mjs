@@ -4,7 +4,7 @@ const browser = await chromium.launch({ executablePath:process.env.CHROMIUM_PATH
 try {
   const page = await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1,isMobile:true,hasTouch:true});
   const errors=[];
-  page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
+  page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'&&!m.location().url.startsWith('https://i.ytimg.com/'))errors.push(m.text())});
   const state=()=>page.evaluate(()=>window.__game.state());
   const waitState=(fn,timeout=60000)=>page.waitForFunction(fn,null,{timeout});
   await page.goto(process.env.GAME_URL || 'http://127.0.0.1:5173');await waitState(()=>window.__game?.state().ready);
@@ -22,8 +22,8 @@ try {
   await page.screenshot({path:'/tmp/gamequacau-playing.png'});
   await page.locator('#pause').click();const stopped=await state();await page.waitForTimeout(400);assert.equal((await state()).z,stopped.z);assert.equal((await state()).audio.running,false);
   await page.locator('#resume').click();assert.equal((await state()).mode,'playing');
-  await page.keyboard.down('d');const before=await state();await page.waitForTimeout(450);await page.keyboard.up('d');assert.ok((await state()).x>before.x);assert.equal((await state()).input.right,false);
-  console.log('PASS pause/resume and keyboard');
+  const before=await state();await page.mouse.move(180,450);await page.mouse.down();await page.mouse.move(260,450,{steps:8});await page.waitForTimeout(400);await page.mouse.up();assert.ok((await state()).x>before.x);
+  console.log('PASS pause/resume and mouse drag');
   await page.locator('#pause').click();await page.locator('#restart-pause').click();assert.equal((await state()).cargo,24);
   const cdp=await page.context().newCDPSession(page);
   const touch=(type,x=195)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:type==='touchEnd'||type==='touchCancel'?[]:[{x,y:500,id:1}]});
@@ -31,7 +31,7 @@ try {
   await touch('touchMove',105);await waitState(()=>window.__game.state().x<-.8,5000);
   await touch('touchEnd');assert.equal((await state()).dragging,false);
   await touch('touchStart');await touch('touchCancel');assert.equal((await state()).dragging,false);
-  await touch('touchStart');await page.keyboard.press('p');assert.equal((await state()).dragging,false);assert.equal((await state()).mode,'paused');await touch('touchEnd');
+  await touch('touchStart');await page.locator('#pause').click();assert.equal((await state()).dragging,false);assert.equal((await state()).mode,'paused');await touch('touchEnd');
   console.log('PASS drag both directions, release, cancel and pause');
   await page.locator('#restart-pause').click();
   // Actual gentle pointer steering; abrupt swerves are intentionally risky at high speed.
