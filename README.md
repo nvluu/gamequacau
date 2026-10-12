@@ -1,15 +1,15 @@
 # Qua cầu · Chuyến xe thanh long
 
-Mini game 3D chạy trên web, ưu tiên màn hình dọc 9:16. Lái xe chở 24 quả thanh long qua cây cầu dài 240 mét, tránh đá, thùng hàng và rào chắn. Va chạm làm xe chao đảo và hất trái cây khỏi thùng. Điểm là số quả còn lại khi về đích. Mất hết hàng thì kết thúc chuyến đi.
+Mini game 3D chạy trên web, ưu tiên màn hình dọc 9:16. Lái xe chở 24 quả thanh long qua cây cầu dài 240 mét, tránh đá, thùng hàng, rào chắn và gà/chó đi qua lại. Va chạm làm xe chao đảo và hất trái cây khỏi thùng. Điểm là số quả còn lại khi về đích. Mất hết hàng thì kết thúc chuyến đi.
 
 ![Màn hình bản chơi thử](docs/preview.png)
 
 ## Chơi
 
-- Điện thoại: chạm giữ nút trái / phải. Có thể giữ thêm **Đi chậm** cùng lúc.
-- Máy tính: **A / D** hoặc **← / →** để lái; **S / ↓ / Space** để đi chậm.
+- Điện thoại: chạm bất kỳ chỗ trống nào trên màn hình rồi **kéo trái / phải** để lái. Nhấc tay, chạm lại để tiếp tục. Xe tự chạy, không còn nút đi chậm.
+- Máy tính: kéo chuột, hoặc **A / D** và **← / →** để lái.
 - **P / Esc** để tạm dừng. Chuyển tab hoặc mất focus cũng tự tạm dừng.
-- Âm thanh mặc định tắt; nhấn nút nốt nhạc để bật.
+- Nhạc nền và tiếng động cơ tự bật sau khi nhấn **Lên xe**. Nút nốt nhạc bật/tắt cả nhạc lẫn hiệu ứng. Có tiếng va chạm, rơi quả và gà/chó. Nhạc được tổng hợp tại chỗ, không tải audio ngoài.
 - Kỷ lục được lưu trên trình duyệt; không cần tài khoản.
 
 ## Phát triển
@@ -45,18 +45,20 @@ Trong môi trường cloud hiện tại dùng Chromium có sẵn:
 CHROMIUM_PATH=/usr/bin/chromium npm run test:smoke
 ```
 
-Bộ smoke test kiểm tra 9:16 trên điện thoại và desktop, giữ đủ 24 quả khi chạy thẳng nhẹ nhàng, va chạm làm rơi hàng, phím lái, multitouch lái + phanh, tạm dừng / tiếp tục, reset, và chạy tới cuối cầu còn hàng. Diagnostics chỉ tồn tại trong dev build. Ảnh kiểm tra được lưu ở `/tmp/gamequacau-*.png`. Có thể đổi URL bằng `GAME_URL` (phải dùng dev server để có diagnostics).
+Bộ smoke test kiểm tra 9:16 trên điện thoại và desktop, giữ đủ 24 quả khi chạy thẳng nhẹ nhàng, va chạm làm rơi hàng, phím lái, kéo cảm ứng hai hướng, nhấc tay/chạm lại/hủy thao tác, tạm dừng / tiếp tục, reset, chuyển động của gà/chó và chạy tới cuối cầu còn hàng. Kiểm tra tín hiệu âm thanh có biên độ thực tế, mute/unmute và giới hạn số lượt vẽ. Diagnostics chỉ tồn tại trong dev build. Ảnh kiểm tra được lưu ở `/tmp/gamequacau-*.png`. Có thể đổi URL bằng `GAME_URL` (phải dùng dev server để có diagnostics).
 
 ## Bản web công khai
 
-Bản build đầu tiên được chuẩn bị trên nhánh **gh-pages**. Trong GitHub repository, vào **Settings → Pages → Build and deployment**, chọn **Deploy from a branch**, nhánh **gh-pages**, thư mục **/(root)**, rồi **Save**. Nếu repository private và gói GitHub không hỗ trợ Pages, hãy dùng dịch vụ static hosting hỗ trợ repository private hoặc tự quyết định đổi visibility.
+Website dùng bản build trên nhánh **gh-pages**. Trong GitHub repository, vào **Settings → Pages → Build and deployment**, chọn **Deploy from a branch**, nhánh **gh-pages**, thư mục **/(root)**, rồi **Save**. Nếu repository private và gói GitHub không hỗ trợ Pages, hãy dùng dịch vụ static hosting hỗ trợ repository private hoặc tự quyết định đổi visibility.
 
-Sau khi GitHub deploy thành công, địa chỉ dự kiến là **https://nvluu.github.io/gamequacau/**. Địa chỉ này chỉ hoạt động sau khi Pages được bật và deployment hoàn tất.
+Sau khi GitHub deploy thành công, chơi tại **https://nvluu.github.io/gamequacau/**. Địa chỉ này chỉ hoạt động sau khi Pages được bật và deployment hoàn tất.
 
 Để đưa bản build mới lên hosting khác, chạy `npm run build` và upload toàn bộ thư mục `dist/`. Không mở trực tiếp `index.html` bằng `file://`; game cần được phục vụ qua HTTP(S).
 
-## Công nghệ và giới hạn bản đầu
+Sau khi commit thay đổi mã nguồn, cập nhật GitHub Pages bằng `npm run deploy:pages`. Lệnh build, cập nhật nhánh triển khai qua checkout tạm và push bình thường (không force). Lệnh kiểm tra nhánh triển khai chỉ có các file build đã biết trước khi thay thế chúng. Cần quyền Git push; không cần quyền API Pages.
 
-TypeScript, Vite, Three.js, Rapier. Tạo hình low-poly bằng code, không cần tải asset từ dịch vụ ngoài. Thanh long dùng rigid bodies thật; thùng xe có lực giữ nhẹ mô phỏng độ bám khi chạy bình thường, giảm lực giữ trong va chạm để hàng rơi ra. Xe dùng điều khiển arcade, va chạm vật cản được phát hiện ở lớp gameplay; chưa mô phỏng đầy đủ bánh xe / hệ thống treo. Lan can giữ xe trên cầu, bản này chưa có xe rơi khỏi cầu. Một màn chơi cố định, chưa có nhiều level hoặc bảng điểm online.
+## Công nghệ và giới hạn
+
+TypeScript, Vite, Three.js, Rapier. Bản 0.2 gộp hình tĩnh theo vật liệu, vẽ 24 quả thanh long bằng instancing, thay bóng động bằng bóng đơn giản, giới hạn pixel ratio 1.25 và tự hạ xuống 1 khi máy chậm. Suối có vệt nước chảy ngang bên dưới cầu. Tạo hình low-poly bằng code, không cần tải asset từ dịch vụ ngoài. Thanh long dùng rigid bodies thật; thùng xe có lực giữ nhẹ mô phỏng độ bám khi chạy bình thường, giảm lực giữ trong va chạm để hàng rơi ra. Xe dùng điều khiển arcade, va chạm vật cản được phát hiện ở lớp gameplay; chưa mô phỏng đầy đủ bánh xe / hệ thống treo. Lan can giữ xe trên cầu, bản này chưa có xe rơi khỏi cầu. Một màn chơi cố định, chưa có nhiều level hoặc bảng điểm online.
 
 Yêu cầu trình duyệt có WebGL2 / tăng tốc phần cứng. Đã kiểm tra Chromium mô phỏng viewport điện thoại; vẫn cần thử cảm giác lái và hiệu năng trên điện thoại thực tế, đặc biệt Safari iOS.

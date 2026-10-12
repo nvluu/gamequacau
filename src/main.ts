@@ -9,19 +9,21 @@ import '@fontsource/be-vietnam-pro/latin-800.css';
 import './style.css';
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GameAudio } from './audio';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id)! as T;
 const TOTAL = 24, FINISH = 240, STEP = 1 / 60;
 type Mode = 'intro' | 'playing' | 'paused' | 'finished';
 type Fruit = { mesh: THREE.Group; body: RAPIER.RigidBody; lost: boolean };
-type Obstacle = { mesh: THREE.Group; x: number; z: number; radius: number; hit: boolean };
+type Obstacle = { mesh: THREE.Group; x: number; z: number; radius: number; hit: boolean; animal?: 'dog' | 'chicken'; legs?: THREE.Object3D[]; warned?: boolean; phase?: number };
 let mode: Mode = 'intro', world: RAPIER.World, truckBody: RAPIER.RigidBody;
 let fruits: Fruit[] = [], obstacles: Obstacle[] = [];
 let x = 0, z = 0, vx = 0, speed = 0, roll = 0, pitch = 0, shake = 0, hitCooldown = 0;
 let retained = TOTAL, elapsed = 0, noticeTimer = 0, accumulator = 0, ready = false;
-let soundEnabled = false, audio: AudioContext | undefined;
-const input = { left: false, right: false, brake: false };
-const pointerIds = new Map<string, number>();
+const audio = new GameAudio();
+const input = { left: false, right: false };
+let drag: { id: number; startX: number; carX: number; targetX: number } | undefined;
 const heldKeys = new Set<string>();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#c5dfd7');
@@ -32,13 +34,18 @@ const truck = new THREE.Group(), wheelMeshes: THREE.Mesh[] = [];
 const art = new THREE.Group();
 const tempQ = new THREE.Quaternion(), tempEuler = new THREE.Euler();
 const cameraTarget = new THREE.Vector3();
+const fruitInstances: THREE.InstancedMesh[] = [];
+let riverFlow: THREE.InstancedMesh;
+const flowDummy = new THREE.Object3D();
+let frameMs = 16.7, hudTick = 0, pixelRatio = Math.min(devicePixelRatio, 1.25), slowFrames = 0;
+const groundShadow = new THREE.Mesh(new THREE.PlaneGeometry(2.25, 3.65), new THREE.MeshBasicMaterial({color:'#203c30',transparent:true,opacity:.2,depthWrite:false}));
 
 const mat = (color: string, roughness = .85) => new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 });
 const m = {
   road: mat('#acb5a8'), cream: mat('#f0e9cc'), dark: mat('#35594d'), rail: mat('#d8d4b6'),
   pink: mat('#df507f'), fruit: mat('#ec5b90'), leaf: mat('#69943e'),
   truck: mat('#eac252'), truckLight: mat('#ffdb74'), rubber: mat('#23352f'), glass: mat('#497d78', .35),
-  red: mat('#dd7159'), rock: mat('#879889'), box: mat('#c2935e'), water: mat('#6eaaa0', .45),
+  red: mat('#dd7159'), rock: mat('#879889'), box: mat('#c2935e'), water: mat('#55aca6', .45),
 };
 function mesh(geometry: THREE.BufferGeometry, material: THREE.Material, parent: THREE.Object3D, pos: [number, number, number]) {
   const obj = new THREE.Mesh(geometry, material); obj.position.set(...pos); obj.castShadow = true; obj.receiveShadow = true; parent.add(obj); return obj;
@@ -49,16 +56,54 @@ function box(parent: THREE.Object3D, size: [number, number, number], pos: [numbe
 function fixedBox(size: [number, number, number], pos: [number, number, number], friction = .7) {
   world.createCollider(RAPIER.ColliderDesc.cuboid(...size).setTranslation(...pos).setFriction(friction));
 }
-function makeFruit() {
-  const g = new THREE.Group();
-  const body = mesh(new THREE.IcosahedronGeometry(.19, 1), m.fruit, g, [0, 0, 0]); body.scale.y = 1.15;
-  for (let i = 0; i < 6; i++) {
-    const angle = i * Math.PI / 3;
-    const leaf = mesh(new THREE.ConeGeometry(.057, .17, 3), m.leaf, g, [Math.sin(angle) * .15, i % 2 ? .045 : -.045, Math.cos(angle) * .15]);
-    leaf.rotation.set(Math.cos(angle) * .85, 0, -Math.sin(angle) * .85);
+// Batch static pieces by material: one draw per material instead of one per plank / leaf.
+function batchStatic(root: THREE.Object3D) {
+  root.updateMatrixWorld(true);
+  const inverse = root.matrixWorld.clone().invert();
+  const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  root.traverse(obj => {
+    if (!(obj instanceof THREE.Mesh) || Array.isArray(obj.material)) return;
+    const geometry = obj.geometry.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inverse, obj.matrixWorld));
+    const list = groups.get(obj.material) ?? []; list.push(geometry); groups.set(obj.material, list);
+  });
+  root.clear();
+  for (const [material, geometries] of groups) {
+    const merged = mergeGeometries(geometries); if (merged) root.add(new THREE.Mesh(merged, material));
+    geometries.forEach(g => g.dispose());
   }
-  mesh(new THREE.ConeGeometry(.06, .12, 4), m.leaf, g, [0, .24, 0]);
-  return g;
+}
+function makeFruitBatch() {
+  // Oval magenta body and curved, wide green scales with pink bases, like a dragon fruit.
+  const body = new THREE.SphereGeometry(.19, 10, 8); body.scale(1, 1.24, .93);
+  const pinkParts: THREE.BufferGeometry[] = [body], greenParts: THREE.BufferGeometry[] = [];
+  function blade(angle: number, height: number, length: number, width: number) {
+    const shape = new THREE.Shape();
+    shape.moveTo(-width / 2, 0); shape.quadraticCurveTo(-width * .58, length * .52, width * .06, length);
+    shape.quadraticCurveTo(width * .55, length * .42, width / 2, 0); shape.closePath();
+    const geometry = new THREE.ShapeGeometry(shape, 3);
+    const positions = geometry.attributes.position;
+    for (let i = 0; i < positions.count; i++) { const t = positions.getY(i) / length; positions.setZ(i, .08 * t * t); }
+    geometry.computeVertexNormals();
+    const colors = new Float32Array(positions.count * 3);
+    const skin = new THREE.Color('#ec5b90'), tip = new THREE.Color('#719d3f');
+    for (let i=0;i<positions.count;i++) { const t=positions.getY(i)/length; const c=skin.clone().lerp(tip,THREE.MathUtils.smoothstep(t,.48,.85)); c.toArray(colors,i*3); }
+    geometry.setAttribute('color',new THREE.BufferAttribute(colors,3));
+    const transform = new THREE.Matrix4().compose(new THREE.Vector3(Math.sin(angle) * .16, height, Math.cos(angle) * .15), new THREE.Quaternion().setFromEuler(new THREE.Euler(.5 * Math.cos(angle), angle, -.5 * Math.sin(angle))), new THREE.Vector3(1,1,1));
+    greenParts.push(geometry.applyMatrix4(transform));
+    const base = new THREE.ConeGeometry(width * .48, .09, 4); base.translate(0,.018,0); base.applyMatrix4(transform); pinkParts.push(base);
+  }
+  for (let ring = 0; ring < 2; ring++) for (let i = 0; i < 5; i++) blade(i * Math.PI * 2 / 5 + ring * .6, -.09 + ring * .14, .16 + ring * .035, .11);
+  for (let i = 0; i < 4; i++) blade(i * Math.PI / 2, .14, .17, .09);
+  const leafMaterial = m.leaf.clone(); leafMaterial.color.set('#ffffff'); leafMaterial.vertexColors=true; leafMaterial.side = THREE.DoubleSide;
+  for (const [parts, material] of [[pinkParts, m.fruit], [greenParts, leafMaterial]] as [THREE.BufferGeometry[], THREE.Material][]) {
+    const instances = new THREE.InstancedMesh(mergeGeometries(parts)!, material, TOTAL);
+    instances.instanceMatrix.setUsage(THREE.DynamicDrawUsage); instances.frustumCulled = false;
+    fruitInstances.push(instances); scene.add(instances); parts.forEach(g=>g.dispose());
+  }
+}
+function updateFruitBatch() {
+  fruits.forEach((f,i) => { f.mesh.scale.setScalar(f.mesh.visible ? 1 : 0); f.mesh.updateMatrix(); fruitInstances.forEach(batch=>batch.setMatrixAt(i,f.mesh.matrix)); });
+  fruitInstances.forEach(batch=>batch.instanceMatrix.needsUpdate=true);
 }
 function makeTruck() {
   box(truck, [1.85, .24, 3.15], [0, .54, 0], m.dark);
@@ -87,32 +132,42 @@ function makeTruck() {
   scene.add(truck);
 }
 function makeBackdrop() {
-  const light = new THREE.HemisphereLight('#fff9e4', '#637f6f', 2.8); scene.add(light);
-  const sun = new THREE.DirectionalLight('#fff0cb', 3.3); sun.position.set(-15, 25, 10); sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024); sun.shadow.camera.left = -18; sun.shadow.camera.right = 18;
-  sun.shadow.camera.top = 25; sun.shadow.camera.bottom = -25; sun.shadow.camera.near = .5; sun.shadow.camera.far = 90;
-  sun.shadow.bias = -.0005; sun.shadow.normalBias = .035; scene.add(sun); scene.add(sun.target);
-  box(art, [360, .3, 540], [0, -4.3, -170], m.water);
-  const rippleMat = new THREE.MeshBasicMaterial({color:'#a1c9b4', transparent:true, opacity:.3});
-  for(let i = 0; i < 100; i++) {
-    const px = Math.sin(i * 19.3) * 48, pz = -((i * 11.79) % 310);
-    box(art, [1.3 + (i % 5), .012, .08], [px, -4.13, pz], rippleMat);
+  scene.add(new THREE.HemisphereLight('#fff9e4', '#637f6f', 2.8));
+  const sun = new THREE.DirectionalLight('#fff0cb', 3.3); sun.position.set(-15, 25, 10); scene.add(sun);
+  // Green land with transverse streams rather than an endless sheet of water.
+  box(art, [200, .3, 400], [0, -4.35, -130], mat('#8cba78'));
+  const riverbed = mat('#c5c591');
+  for (const riverZ of [-4,-76,-156,-232]) {
+    box(art, [200,.08,24], [0,-4.16,riverZ], riverbed);
+    box(art, [200,.07,17], [0,-4.08,riverZ], m.water);
+    for (let i=0;i<12;i++) {
+      const side=i%2?1:-1, px=side*(8+(i*5.7)%55);
+      const rock=mesh(new THREE.IcosahedronGeometry(.8+(i%3)*.2,0),m.rock,art,[px,-3.8,riverZ+(i%2?10:-10)]);rock.scale.y=.6;
+    }
   }
+  riverFlow = new THREE.InstancedMesh(new THREE.BoxGeometry(2.4,.018,.07),new THREE.MeshBasicMaterial({color:'#d0f2de',transparent:true,opacity:.48}),64);
+  riverFlow.instanceMatrix.setUsage(THREE.DynamicDrawUsage); riverFlow.frustumCulled=false; scene.add(riverFlow);
   const hillMats = [mat('#7cae91'), mat('#97bea2'), mat('#adcbb0')];
-  for(let i = 0; i < 30; i++) {
+  for(let i = 0; i < 18; i++) {
     const side = i % 2 ? 1 : -1;
-    const hill = mesh(new THREE.IcosahedronGeometry(1, 1), hillMats[i % 3], art, [side * (25 + i % 4 * 8), -2, -i * 12 + 20]);
-    hill.scale.set(12 + i % 5 * 2, 7 + i % 6 * 2, 16); hill.castShadow = false;
+    const hill = mesh(new THREE.IcosahedronGeometry(1, 0), hillMats[i % 3], art, [side * (27 + i % 4 * 8), -2, -i * 17 + 20]);
+    hill.scale.set(12 + i % 5 * 2, 7 + i % 6 * 2, 16);
   }
-  for(let i = 0; i < 8; i++) {
-    const g = new THREE.Group(); g.position.set(i % 2 ? 18 : -18, -3.8, -i * 33 + 12);
+  for(let i = 0; i < 10; i++) {
+    const g = new THREE.Group(); g.position.set(i % 2 ? 13 : -13, -3.8, -i * 25 + 12);
     box(g, [.22, 1.8, .22], [0, .6, 0], m.box);
-    const crown = mesh(new THREE.IcosahedronGeometry(1.6, 0), m.leaf, g, [0, 2.5, 0]); crown.scale.y = 1.4;
-    art.add(g);
+    const crown = mesh(new THREE.IcosahedronGeometry(1.6, 0), m.leaf, g, [0, 2.5, 0]); crown.scale.y = 1.4; art.add(g);
   }
   scene.add(art);
-  // Keep the shadow map around the moving truck rather than the whole bridge.
-  scene.userData.sun = sun;
+  groundShadow.rotation.x=-Math.PI/2; groundShadow.position.y=-.029; scene.add(groundShadow);
+}
+function updateRiver(time: number) {
+  for(let i=0;i<64;i++) {
+    const riverZ=[-4,-76,-156,-232][Math.floor(i/16)];
+    flowDummy.position.set(((i*13.37+time*2.8)%130)-65,-4.035,riverZ+Math.sin(i*12.6)*7);
+    flowDummy.scale.set(.5+i%4*.4,1,1);flowDummy.updateMatrix();riverFlow.setMatrixAt(i,flowDummy.matrix);
+  }
+  riverFlow.instanceMatrix.needsUpdate=true;
 }
 function signTexture(text: string, background: string, color: string) {
   const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 192;
@@ -170,16 +225,63 @@ function makeObstacle(px: number, pz: number, kind: 'rock' | 'crate' | 'barrier'
     }
     for(const xx of [-.4,0,.4]) { const stripe = box(g, [.13,.46,.315], [xx,.65,0], m.cream); stripe.rotation.z = -.35; }
   }
-  scene.add(g); obstacles.push({mesh:g, x:px, z:pz, radius, hit:false});
+  batchStatic(g); scene.add(g); obstacles.push({mesh:g, x:px, z:pz, radius, hit:false});
 }
 function buildObstacles() {
   const layout: [number,number,'rock'|'crate'|'barrier'][] = [
     [0,-24,'rock'],[-2.1,-40,'crate'],[1.8,-53,'barrier'],[-.7,-68,'rock'],
     [2,-84,'crate'],[.3,-98,'barrier'],[-2.1,-112,'rock'],[1.8,-125,'rock'],
-    [-.9,-139,'crate'],[1.8,-150,'barrier'],[-2,-163,'crate'],[.2,-176,'rock'],
-    [2,-189,'crate'],[-1.9,-203,'barrier'],[.4,-219,'rock'],
+    [-.9,-139,'crate'],[1.8,-159,'barrier'],[-2,-163,'crate'],[.2,-188,'rock'],
+    [2,-189,'crate'],[-1.9,-226,'barrier'],[.4,-219,'rock'],
   ];
-  layout.forEach(o => makeObstacle(...o));
+  // Keep a few fixed obstacles, and leave room around moving animals.
+  layout.filter((_,i)=>![2,4,6,8,10,12,14].includes(i)).forEach(o => makeObstacle(...o));
+  makeAnimal(-52,'chicken',.2);makeAnimal(-84,'dog',1.4);makeAnimal(-113,'chicken',2.3);
+  makeAnimal(-144,'dog',.5);makeAnimal(-174,'chicken',1.9);makeAnimal(-207,'dog',2.6);
+}
+function makeAnimal(pz: number, kind: 'dog' | 'chicken', phase: number) {
+  const g=new THREE.Group(), body=new THREE.Group(), legs:THREE.Object3D[]=[];
+  const fur=mat(kind==='dog'?'#b8814c':'#f5ead2'), accent=mat(kind==='dog'?'#70462f':'#e45d45');
+  g.add(body);
+  if(kind==='dog') {
+    box(body,[.84,.4,.4],[0,.54,0],fur); box(body,[.36,.4,.37],[.46,.73,0],fur);
+    box(body,[.24,.18,.27],[.68,.64,0],m.cream);box(body,[.07,.1,.17],[.8,.65,0],m.rubber);
+    for(const side of [-1,1]) {
+      const ear=box(body,[.16,.3,.1],[.43,.69,side*.22],accent);ear.rotation.z=.25;
+      box(body,[.055,.055,.018],[.56,.8,side*.191],m.rubber);
+    }
+    const tail=box(body,[.33,.09,.09],[-.55,.7,0],fur);tail.rotation.z=-.55;
+  } else {
+    const belly=mesh(new THREE.SphereGeometry(.32,8,6),fur,body,[0,.48,0]);belly.scale.set(1.3,1,.85);
+    mesh(new THREE.SphereGeometry(.19,8,6),fur,body,[.3,.78,0]);
+    for(const side of [-1,1]) {
+      const wing=box(body,[.3,.17,.04],[0,.5,side*.25],m.cream);wing.rotation.z=-.3;
+      box(body,[.045,.045,.015],[.35,.82,side*.168],m.rubber);
+      const tail=box(body,[.12,.32,.05],[-.35,.65,side*.09],m.dark);tail.rotation.z=-.6;
+    }
+    const beak=mesh(new THREE.ConeGeometry(.08,.2,4),m.truck,body,[.53,.77,0]);beak.rotation.z=-Math.PI/2;
+    for(let i=0;i<3;i++)mesh(new THREE.SphereGeometry(.055,6,4),accent,body,[.21+i*.075,.96,0]);
+    mesh(new THREE.SphereGeometry(.075,6,4),accent,body,[.41,.66,0]);
+  }
+  batchStatic(body);
+  const legCount=kind==='dog'?4:2;
+  for(let i=0;i<legCount;i++) {
+    const leg=new THREE.Group();leg.position.set(kind==='dog'?(i<2?-.28:.29):0,.37,i%2?-.14:.14);
+    box(leg,[.065,.3,.065],[0,-.15,0],kind==='dog'?accent:m.truck);
+    box(leg,[.16,.055,.09],[.04,-.31,0],kind==='dog'?accent:m.truck);batchStatic(leg);g.add(leg);legs.push(leg);
+  }
+  g.position.z=pz;scene.add(g);obstacles.push({mesh:g,x:0,z:pz,radius:kind==='dog'?.65:.45,hit:false,animal:kind,legs,phase,warned:false});
+}
+function updateAnimals() {
+  for(const o of obstacles) {
+    o.mesh.visible=o.z>z-95&&o.z<z+16;
+    if(!o.animal)continue;
+    const t=elapsed*.72+(o.phase??0), direction=Math.cos(t)>=0?1:-1;
+    o.x=Math.sin(t)*2.65;o.mesh.position.x=o.x;o.mesh.rotation.y=direction>0?0:Math.PI;
+    o.mesh.position.y=Math.abs(Math.sin(elapsed*10))*.045;
+    o.legs?.forEach((leg,i)=>leg.rotation.z=Math.sin(elapsed*10+i*Math.PI)*.45);
+    if(!o.warned&&mode==='playing'&&o.z>z-15&&o.z<z-2) {o.warned=true;audio.animal(o.animal);notice(o.animal==='dog'?'CÓ CHÓ QUA CẦU — KÉO ĐỂ NÉ NHÉ':'GÀ ĐANG QUA ĐƯỜNG!');}
+  }
 }
 function resetPhysics() {
   fruits.forEach(f=> { scene.remove(f.mesh); world.removeRigidBody(f.body); }); fruits = [];
@@ -194,29 +296,23 @@ function resetPhysics() {
   for(let layer = 0; layer < 2; layer++) for(let row = 0; row < 4; row++) for(let col = 0; col < 3; col++) {
     const px = (col - 1) * .45 + (layer ? .035 : 0), pz = -.26 + row * .43;
     const py = 1.19 + layer * .43;
-    const fruit = makeFruit(); fruit.position.set(px,py,pz); scene.add(fruit);
+    const fruit = new THREE.Group(); fruit.position.set(px,py,pz);
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(px,py,pz).setLinearDamping(.55).setAngularDamping(.75).setCcdEnabled(true));
     world.createCollider(RAPIER.ColliderDesc.ball(.195).setDensity(1.1).setFriction(.6).setRestitution(.12),body);
     fruits.push({mesh:fruit,body,lost:false});
   }
   x = z = vx = speed = roll = pitch = shake = elapsed = hitCooldown = noticeTimer = accumulator = 0;
   retained = TOTAL;
-  obstacles.forEach(o=> {o.hit=false; o.mesh.rotation.set(0,0,0);});
+  obstacles.forEach(o=> {o.hit=false; o.warned=false; o.mesh.rotation.set(0,0,0);});
   truck.position.set(0,0,0); truck.rotation.set(0,0,0);
-  resetInput(); updateHud(); $('impact').classList.remove('show'); $('drive-hint').style.opacity = '1';
+  updateAnimals(); updateFruitBatch(); hudTick=0; resetInput(); updateHud(); $('impact').classList.remove('show'); $('drive-hint').style.opacity = '1';
 }
 function updateHud() {
   $('cargo').textContent = String(retained);
   const progress = Math.min(100,Math.floor(-z/FINISH*100));
   $('distance').textContent = `${progress}%`; $('progress').style.width = `${progress}%`;
 }
-function tone(freq: number, duration: number, volume = .04, type: OscillatorType = 'sine') {
-  if(!soundEnabled || !audio) return;
-  const oscillator = audio.createOscillator(), gain = audio.createGain(); oscillator.type = type;
-  oscillator.frequency.setValueAtTime(freq,audio.currentTime); oscillator.frequency.exponentialRampToValueAtTime(freq*.6,audio.currentTime+duration);
-  gain.gain.setValueAtTime(volume,audio.currentTime); gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
-  oscillator.connect(gain); gain.connect(audio.destination); oscillator.start(); oscillator.stop(audio.currentTime+duration);
-}
+function tone(freq: number, duration: number, volume = .12, type: OscillatorType = 'sine') { audio.effect(freq,duration,volume*2.5,type); }
 function notice(text: string) { $('impact').textContent = text; $('impact').classList.add('show'); noticeTimer = 1.9; }
 function collision(o: Obstacle) {
   o.hit = true; o.mesh.rotation.z = x < o.x ? -.18 : .18;
@@ -230,15 +326,15 @@ function collision(o: Obstacle) {
     f.body.applyImpulse({x:side * (.085 + (i % 3) * .018) * force,y:(.13 + (i % 4) * .019) * force,z:-.09 * force},true);
     f.body.applyTorqueImpulse({x:.014*side,y:.01,z:.014*side},true);
   });
-  notice('ỐI! XE LẮC — GIỮ CHẮC TAY LÁI'); tone(95,.23,.09,'triangle');
+  notice(o.animal?'PHANH GẤP! XE LẮC — HÀNG RƠI':'ỐI! XE LẮC — GIỮ CHẮC TAY LÁI'); tone(150,.32,.16,'sawtooth');
 }
 function step() {
   elapsed += STEP; hitCooldown = Math.max(0,hitCooldown-STEP);
   if(noticeTimer>0) { noticeTimer-=STEP; if(noticeTimer<=0) $('impact').classList.remove('show'); }
   const steering = Number(input.right) - Number(input.left);
-  const targetSpeed = input.brake ? 3.1 : 8.6;
+  const targetSpeed = 8.6;
   speed += THREE.MathUtils.clamp(targetSpeed-speed,-5*STEP,1.4*STEP);
-  const targetVx = steering * (input.brake ? 2.4 : 3.2);
+  const targetVx = drag ? THREE.MathUtils.clamp((drag.targetX-x)*9,-4.2,4.2) : steering * 3.2;
   vx += (targetVx-vx) * STEP * 5;
   x += vx*STEP; z -= speed*STEP;
   if(Math.abs(x) > 2.63) {
@@ -256,6 +352,7 @@ function step() {
   truck.rotation.set(pitch,-vx*.035,roll);
   tempEuler.copy(truck.rotation); tempQ.setFromEuler(tempEuler);
   truckBody.setNextKinematicTranslation(truck.position); truckBody.setNextKinematicRotation(tempQ);
+  updateAnimals();
   for(const o of obstacles) {
     if(!o.hit && hitCooldown<=0 && Math.abs((z-1.05)-o.z)<.9 && Math.abs(x-o.x)<.84+o.radius) collision(o);
   }
@@ -278,19 +375,18 @@ function step() {
   }
   wheelMeshes.forEach(w=>w.rotation.x += speed*STEP/.36);
   if(elapsed > 6) $('drive-hint').style.opacity='0';
-  updateHud();
+  if(++hudTick%6===0) updateHud();
   if(-z >= FINISH) finish(true);
   else if(retained <= 0) finish(false);
 }
 function resetInput() {
-  input.left=input.right=input.brake=false; heldKeys.clear(); pointerIds.clear();
-  ['left','right','brake'].forEach(id=>$(id).classList.remove('pressed'));
+  input.left=input.right=false; heldKeys.clear();
+  const pointerId=drag?.id;drag=undefined;
+  if(pointerId!==undefined&&$('game').hasPointerCapture(pointerId))$('game').releasePointerCapture(pointerId);
 }
 function syncInput() {
-  input.left = pointerIds.has('left') || heldKeys.has('arrowleft') || heldKeys.has('a');
-  input.right = pointerIds.has('right') || heldKeys.has('arrowright') || heldKeys.has('d');
-  input.brake = pointerIds.has('brake') || heldKeys.has('arrowdown') || heldKeys.has('s') || heldKeys.has(' ');
-  (['left','right','brake'] as const).forEach(k=>$(k).classList.toggle('pressed',input[k]));
+  input.left=heldKeys.has('arrowleft')||heldKeys.has('a');
+  input.right=heldKeys.has('arrowright')||heldKeys.has('d');
 }
 function startGame() {
   if(!ready) return;
@@ -298,59 +394,65 @@ function startGame() {
   ['intro','end-screen','pause-screen','footer'].forEach(id=>$(id).classList.add('hidden'));
   ['hud','controls','pause'].forEach(id=>$(id).classList.remove('hidden'));
   camera.position.set(0,6.8,10.7); camera.lookAt(0,.7,-7);
-  if(soundEnabled) void audio?.resume();
+  void audio.unlock().then(()=>audio.setRunning(mode==='playing')); syncSoundButton();
 }
 function pauseGame() {
-  if(mode!=='playing') return; mode='paused'; resetInput(); $('pause-screen').classList.remove('hidden'); $('resume').focus();
+  if(mode!=='playing') return; mode='paused'; resetInput(); audio.setRunning(false); $('pause-screen').classList.remove('hidden'); $('resume').focus();
 }
 function resumeGame() {
-  if(mode!=='paused') return; mode='playing'; accumulator=0; $('pause-screen').classList.add('hidden');
+  if(mode!=='paused') return; mode='playing'; accumulator=0; void audio.unlock().then(()=>audio.setRunning(mode==='playing')); $('pause-screen').classList.add('hidden');
 }
 function bestScore(score: number) {
   try { const best=Math.max(score,Number(localStorage.getItem('qua-cau-best')) || 0); localStorage.setItem('qua-cau-best',String(best)); return best; }
   catch { return score; }
 }
 function finish(arrived: boolean) {
-  if(mode!=='playing') return; mode='finished'; resetInput();
+  if(mode!=='playing') return; mode='finished'; resetInput(); audio.setRunning(false); updateHud();
   ['controls','pause'].forEach(id=>$(id).classList.add('hidden'));
   $('end-screen').classList.remove('hidden');
   $('end-eyebrow').textContent=arrived?'CHUYẾN XE HOÀN THÀNH':'HÀNG RƠI HẾT RỒI';
   $('end-title').textContent=arrived?(retained>=18?'Mùa ngọt về nhà!':'Qua cầu rồi nhé!'):'Thử lại một chuyến?';
-  $('end-description').textContent=arrived?'Một chuyến đi nhỏ, mang theo cả mùa ngọt.':'Đi chậm trước vật cản và giữ tay lái nhẹ hơn nhé.';
+  $('end-description').textContent=arrived?'Một chuyến đi nhỏ, mang theo cả mùa ngọt.':'Kéo nhẹ để né vật cản và chú ý gà, chó qua đường nhé.';
   $('end-count').textContent=String(retained); $('best').textContent=`Kỷ lục của bạn: ${bestScore(arrived?retained:0)} / ${TOTAL} quả`;
   if(arrived) {tone(660,.25); setTimeout(()=>tone(880,.35),140);} else tone(150,.4);
   $('again').focus();
 }
 function showHome() {
-  resetPhysics(); mode='intro'; ['end-screen','pause-screen','hud','controls','pause'].forEach(id=>$(id).classList.add('hidden'));
+  resetPhysics(); mode='intro'; audio.setRunning(false); ['end-screen','pause-screen','hud','controls','pause'].forEach(id=>$(id).classList.add('hidden'));
   ['intro','footer'].forEach(id=>$(id).classList.remove('hidden')); $('start').focus();
 }
+function syncSoundButton() {
+  $('sound').setAttribute('aria-label',audio.enabled?'Tắt âm thanh':'Bật âm thanh');
+  document.querySelector('.sound-off')!.classList.toggle('hidden',audio.enabled);
+}
 function bindControls() {
-  for(const id of ['left','right','brake']) {
-    const button=$(id);
-    button.addEventListener('pointerdown',e=> {if(mode!=='playing')return; e.preventDefault(); button.setPointerCapture(e.pointerId); pointerIds.set(id,e.pointerId); syncInput();});
-    const release=(e:PointerEvent)=> {if(pointerIds.get(id)===e.pointerId) {pointerIds.delete(id); syncInput();}};
-    button.addEventListener('pointerup',release); button.addEventListener('pointercancel',release); button.addEventListener('lostpointercapture',release);
-    button.addEventListener('contextmenu',e=>e.preventDefault());
-  }
+  const surface=$('game');
+  surface.addEventListener('pointerdown',e=> {
+    if(mode!=='playing'||drag||(e.target as HTMLElement).closest('button,a'))return;
+    e.preventDefault();surface.setPointerCapture(e.pointerId);
+    drag={id:e.pointerId,startX:e.clientX,carX:x,targetX:x};
+    $('drive-hint').style.opacity='0';
+  });
+  surface.addEventListener('pointermove',e=> {
+    if(!drag||e.pointerId!==drag.id)return;
+    e.preventDefault();drag.targetX=THREE.MathUtils.clamp(drag.carX+(e.clientX-drag.startX)/surface.clientWidth*7.2,-2.6,2.6);
+  });
+  const release=(e:PointerEvent)=>{if(drag?.id===e.pointerId)drag=undefined;};
+  surface.addEventListener('pointerup',release);surface.addEventListener('pointercancel',release);surface.addEventListener('lostpointercapture',release);
+  surface.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('keydown',e=> {
     const key=e.key.toLowerCase();
-    if(key==='escape' || key==='p') {if(e.repeat)return; if(mode==='playing')pauseGame(); else if(mode==='paused')resumeGame();return;}
-    if(['arrowleft','arrowright','arrowdown','a','d','s',' '].includes(key) && mode==='playing') {e.preventDefault(); heldKeys.add(key);syncInput();}
+    if(key==='escape'||key==='p'){if(e.repeat)return;if(mode==='playing')pauseGame();else if(mode==='paused')resumeGame();return;}
+    if(['arrowleft','arrowright','a','d'].includes(key)&&mode==='playing'){e.preventDefault();heldKeys.add(key);syncInput();}
   });
-  window.addEventListener('keyup',e=> {heldKeys.delete(e.key.toLowerCase());syncInput();});
+  window.addEventListener('keyup',e=>{heldKeys.delete(e.key.toLowerCase());syncInput();});
   window.addEventListener('blur',()=>{resetInput();pauseGame();});
-  document.addEventListener('visibilitychange',()=> {if(document.hidden)pauseGame();});
-  $('start').addEventListener('click',startGame); $('again').addEventListener('click',startGame);
-  $('restart-pause').addEventListener('click',startGame); $('pause').addEventListener('click',pauseGame);
-  $('resume').addEventListener('click',resumeGame); $('home').addEventListener('click',showHome);
-  $('sound').addEventListener('click',()=> {
-    soundEnabled=!soundEnabled;
-    try {if(soundEnabled){audio ??= new AudioContext();void audio.resume();tone(540,.1);}}
-    catch{soundEnabled=false;}
-    $('sound').setAttribute('aria-label',soundEnabled?'Tắt âm thanh':'Bật âm thanh');
-    document.querySelector('.sound-off')!.classList.toggle('hidden',soundEnabled);
-  });
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
+  $('start').addEventListener('click',startGame);$('again').addEventListener('click',startGame);
+  $('restart-pause').addEventListener('click',startGame);$('pause').addEventListener('click',pauseGame);
+  $('resume').addEventListener('click',resumeGame);$('home').addEventListener('click',showHome);
+  $('sound').addEventListener('click',()=>{audio.toggle();syncSoundButton();});
+  syncSoundButton();
 }
 function resize() {
   const {width,height}=$('canvas').getBoundingClientRect(); camera.aspect=width/height; camera.updateProjectionMatrix(); renderer.setSize(width,height);
@@ -358,7 +460,11 @@ function resize() {
 function animate() {
   const clock=new THREE.Clock();
   renderer.setAnimationLoop(()=> {
-    const dt=Math.min(clock.getDelta(),.06);
+    const dt=Math.min(clock.getDelta(),.1);
+    frameMs=frameMs*.95+dt*1000*.05;
+    // Reduce fill-rate on slower phones without changing physics or the portrait layout.
+    if(mode==='playing'&&elapsed>2&&frameMs>28)slowFrames++;else slowFrames=Math.max(0,slowFrames-1);
+    if(slowFrames>90&&pixelRatio>1){pixelRatio=1;renderer.setPixelRatio(pixelRatio);resize();slowFrames=0;}
     if(mode==='playing') {
       accumulator+=dt;
       while(accumulator>=STEP && mode==='playing') {step();accumulator-=STEP;}
@@ -371,26 +477,25 @@ function animate() {
       // Settle the load before the first trip; no movement and no scoring in the menu.
       if(elapsed<1.3) { world.step(); elapsed+=STEP; fruits.forEach(f=>{const p=f.body.translation(),q=f.body.rotation();f.mesh.position.set(p.x,p.y,p.z);f.mesh.quaternion.set(q.x,q.y,q.z,q.w);}); }
     }
-    const sun=scene.userData.sun as THREE.DirectionalLight;
-    sun.position.set(x-12,25,z+12); sun.target.position.set(x,0,z-5);
+    updateFruitBatch();updateRiver(elapsed);groundShadow.position.set(x,-.029,z);audio.updateEngine(speed);
     renderer.render(scene,camera);
   });
 }
 async function init() {
   try {
     renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
-    renderer.setPixelRatio(Math.min(devicePixelRatio,1.75)); renderer.shadowMap.enabled=true;
+    renderer.setPixelRatio(pixelRatio); renderer.shadowMap.enabled=false;
     renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.outputColorSpace=THREE.SRGBColorSpace;
     renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.15;
     $('canvas').appendChild(renderer.domElement);
     renderer.domElement.addEventListener('webglcontextlost',e=> {e.preventDefault();pauseGame();$('error').textContent='Đồ họa tạm bị ngắt. Hãy tải lại trang để chơi tiếp.';$('error').classList.remove('hidden');});
     await RAPIER.init(); world=new RAPIER.World({x:0,y:-9.81,z:0}); world.timestep=STEP;
-    makeBackdrop();makeBridge();makeTruck();buildObstacles();resetPhysics();bindControls();
+    makeBackdrop();makeBridge();batchStatic(art);makeTruck();buildObstacles();makeFruitBatch();resetPhysics();bindControls();
     new ResizeObserver(resize).observe($('game')); resize();
     ready=true; $('start').removeAttribute('disabled'); $('start').innerHTML='<span>LÊN XE THÔI</span><span>→</span>';
     animate();
     // Read-only development diagnostics used by the browser smoke tests.
-    if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({mode,x,z,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});
+    if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frameMs,pixelRatio,dragging:!!drag,audio:audio.status(),animals:obstacles.filter(o=>o.animal).map(o=>({kind:o.animal,phase:o.phase,x:o.x,z:o.z,hit:o.hit})),obstacles:obstacles.map(o=>({x:o.x,z:o.z,hit:o.hit,animal:o.animal,phase:o.phase})),mode,x,z,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});
   } catch(error) {
     console.error(error); $('error').textContent='Chưa khởi động được đồ họa 3D. Hãy thử Chrome/Safari mới nhất, bật tăng tốc phần cứng rồi tải lại trang.';$('error').classList.remove('hidden');
     $('start').innerHTML='<span>KHÔNG THỂ KHỞI ĐỘNG</span>';
