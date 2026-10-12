@@ -6,10 +6,10 @@ Mini game 3D chạy trên web, ưu tiên màn hình dọc 9:16. Lái xe chở 24
 
 ## Chơi
 
-- Điện thoại: chạm bất kỳ chỗ trống nào trên màn hình rồi **kéo trái / phải** để lái. Nhấc tay, chạm lại để tiếp tục. Xe tự chạy, không còn nút đi chậm.
+- Điện thoại: chạm bất kỳ chỗ trống nào trên màn hình rồi **kéo trái / phải** để lái. Nhấc tay, chạm lại để tiếp tục. Xe tự chạy và tăng tốc dần; không có nút đi chậm.
 - Máy tính: kéo chuột, hoặc **A / D** và **← / →** để lái.
 - **P / Esc** để tạm dừng. Chuyển tab hoặc mất focus cũng tự tạm dừng.
-- Nhạc nền và tiếng động cơ tự bật sau khi nhấn **Lên xe**. Nút nốt nhạc bật/tắt cả nhạc lẫn hiệu ứng. Có tiếng va chạm, rơi quả và gà/chó. Nhạc được tổng hợp tại chỗ, không tải audio ngoài.
+- Không có nhạc nền hoặc nút âm thanh. Chỉ giữ tiếng va chạm, rơi quả, gà/chó và hiệu ứng về đích; dùng âm lượng thiết bị để điều chỉnh.
 - Kỷ lục được lưu trên trình duyệt; không cần tài khoản.
 
 ## Phát triển
@@ -45,7 +45,15 @@ Trong môi trường cloud hiện tại dùng Chromium có sẵn:
 CHROMIUM_PATH=/usr/bin/chromium npm run test:smoke
 ```
 
-Bộ smoke test kiểm tra 9:16 trên điện thoại và desktop, giữ đủ 24 quả khi chạy thẳng nhẹ nhàng, va chạm làm rơi hàng, phím lái, kéo cảm ứng hai hướng, nhấc tay/chạm lại/hủy thao tác, tạm dừng / tiếp tục, reset, chuyển động của gà/chó và chạy tới cuối cầu còn hàng. Kiểm tra tín hiệu âm thanh có biên độ thực tế, mute/unmute và giới hạn số lượt vẽ. Diagnostics chỉ tồn tại trong dev build. Ảnh kiểm tra được lưu ở `/tmp/gamequacau-*.png`. Có thể đổi URL bằng `GAME_URL` (phải dùng dev server để có diagnostics).
+Bộ smoke test kiểm tra 9:16 trên điện thoại và desktop, giữ đủ 24 quả khi chạy thẳng nhẹ nhàng, va chạm làm rơi hàng, phím lái, kéo cảm ứng hai hướng, nhấc tay/chạm lại/hủy thao tác, tạm dừng / tiếp tục, reset, chuyển động của gà/chó và chạy tới cuối cầu còn hàng. Kiểm tra không có âm thanh nền liên tục, tốc độ tăng dần, camera bám cùng thời điểm với xe và giới hạn số lượt vẽ. Diagnostics chỉ tồn tại trong dev build. Ảnh kiểm tra được lưu ở `/tmp/gamequacau-*.png`. Có thể đổi URL bằng `GAME_URL` (phải dùng dev server để có diagnostics).
+
+Kiểm tra riêng chuyển động với màn hình 120 Hz và nhịp render không đều:
+
+```sh
+CHROMIUM_PATH=/usr/bin/chromium npm run test:smoothness
+```
+
+Bài kiểm tra điều khiển timestamp của requestAnimationFrame và xác minh xe tiếp tục di chuyển giữa các bước vật lý, không nhảy ngược, camera không trễ hoặc nhấp nhô. Đây là kiểm tra thời điểm render, không phải benchmark FPS trên điện thoại thực tế.
 
 ## Bản web công khai
 
@@ -59,6 +67,6 @@ Sau khi commit thay đổi mã nguồn, cập nhật GitHub Pages bằng `npm ru
 
 ## Công nghệ và giới hạn
 
-TypeScript, Vite, Three.js, Rapier. Bản 0.2 gộp hình tĩnh theo vật liệu, vẽ 24 quả thanh long bằng instancing, thay bóng động bằng bóng đơn giản, giới hạn pixel ratio 1.25 và tự hạ xuống 1 khi máy chậm. Suối có vệt nước chảy ngang bên dưới cầu. Tạo hình low-poly bằng code, không cần tải asset từ dịch vụ ngoài. Thanh long dùng rigid bodies thật; thùng xe có lực giữ nhẹ mô phỏng độ bám khi chạy bình thường, giảm lực giữ trong va chạm để hàng rơi ra. Xe dùng điều khiển arcade, va chạm vật cản được phát hiện ở lớp gameplay; chưa mô phỏng đầy đủ bánh xe / hệ thống treo. Lan can giữ xe trên cầu, bản này chưa có xe rơi khỏi cầu. Một màn chơi cố định, chưa có nhiều level hoặc bảng điểm online.
+TypeScript, Vite, Three.js, Rapier. Bản 0.3 gộp hình tĩnh và xe theo vật liệu, vẽ 24 quả thanh long bằng instancing, thay bóng động bằng bóng đơn giản, giới hạn pixel ratio 1 và tự hạ xuống 0.85 khi máy chậm. Chuyển động được nội suy giữa các bước vật lý 60 Hz; camera, xe, trái cây và động vật dùng chung thời điểm vẽ. Camera không còn trễ theo chiều tiến và xe không rung khi chạy bình thường. Biển đích dùng texture chữ lớn, vật liệu không bị ảnh hưởng bởi sương/ánh sáng; thùng xe mang chữ “Phương Tấu Hài”. Suối có vệt nước chảy ngang bên dưới cầu. Tạo hình low-poly bằng code, không cần tải asset từ dịch vụ ngoài. Thanh long dùng rigid bodies thật; thùng xe có lực giữ nhẹ mô phỏng độ bám khi chạy bình thường, giảm lực giữ trong va chạm để hàng rơi ra. Xe dùng điều khiển arcade, va chạm vật cản được phát hiện ở lớp gameplay; chưa mô phỏng đầy đủ bánh xe / hệ thống treo. Lan can giữ xe trên cầu, bản này chưa có xe rơi khỏi cầu. Một màn chơi cố định, chưa có nhiều level hoặc bảng điểm online.
 
 Yêu cầu trình duyệt có WebGL2 / tăng tốc phần cứng. Đã kiểm tra Chromium mô phỏng viewport điện thoại; vẫn cần thử cảm giác lái và hiệu năng trên điện thoại thực tế, đặc biệt Safari iOS.
