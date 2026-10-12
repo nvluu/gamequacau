@@ -9,7 +9,7 @@ try {
   const waitState=(fn,timeout=60000)=>page.waitForFunction(fn,null,{timeout});
   await page.goto(process.env.GAME_URL || 'http://127.0.0.1:5173');await waitState(()=>window.__game?.state().ready);
   const rect=await page.locator('#game').boundingBox();assert.ok(Math.abs(rect.width/rect.height-9/16)<.005);
-  assert.equal(await page.locator('#brake,#sound').count(),0);assert.equal(await page.locator('#left,#right').count(),2,'Two steering buttons are available');
+  assert.equal(await page.locator('#brake,#sound,#left,#right').count(),0,'Swipe controls replace buttons');
   assert.equal((await state()).cargo,24);assert.equal((await state()).animals.length,6);
   await page.screenshot({path:'/tmp/gamequacau-intro.png'});
   await page.locator('#start').click();await waitState(()=>window.__game.state().z < -12);
@@ -26,41 +26,30 @@ try {
   console.log('PASS pause/resume and keyboard');
   await page.locator('#pause').click();await page.locator('#restart-pause').click();assert.equal((await state()).cargo,24);
   const cdp=await page.context().newCDPSession(page);
-  const left=await page.locator('#left').boundingBox(),right=await page.locator('#right').boundingBox();
-  const point=(rect,id)=>({x:rect.x+rect.width/2,y:rect.y+rect.height/2,id});
-  const l=point(left,1),r=point(right,2);
-  const touch=(type,touchPoints=[])=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints});
-  await touch('touchStart',[r]);await waitState(()=>window.__game.state().x>1,5000);assert.equal((await state()).input.right,true);
-  await touch('touchEnd');assert.equal((await state()).input.right,false);
-  await touch('touchStart',[l]);await waitState(()=>window.__game.state().x < -1,5000);assert.equal((await state()).input.left,true);
-  await touch('touchCancel');assert.equal((await state()).input.left,false);
-  await touch('touchStart',[l,r]);assert.equal((await state()).input.left,true);assert.equal((await state()).input.right,true);
-  await touch('touchEnd');assert.equal((await state()).input.left,false);assert.equal((await state()).input.right,false);
-  await touch('touchStart',[r]);await page.keyboard.press('p');assert.equal((await state()).input.right,false);assert.equal((await state()).mode,'paused');await touch('touchEnd');
+  const touch=(type,x=195)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:type==='touchEnd'||type==='touchCancel'?[]:[{x,y:500,id:1}]});
+  await touch('touchStart');await touch('touchMove',280);await waitState(()=>window.__game.state().x>.8,5000);assert.equal((await state()).dragging,true);
+  await touch('touchMove',105);await waitState(()=>window.__game.state().x<-.8,5000);
+  await touch('touchEnd');assert.equal((await state()).dragging,false);
+  await touch('touchStart');await touch('touchCancel');assert.equal((await state()).dragging,false);
+  await touch('touchStart');await page.keyboard.press('p');assert.equal((await state()).dragging,false);assert.equal((await state()).mode,'paused');await touch('touchEnd');
+  console.log('PASS drag both directions, release, cancel and pause');
   await page.locator('#restart-pause').click();
-  await touch('touchStart',[{x:180,y:500,id:1}]);await touch('touchMove',[{x:70,y:500,id:1}]);await page.waitForTimeout(250);assert.ok(Math.abs((await state()).x)<.05,'Swiping the scene does not steer the car');await touch('touchEnd');
-  console.log('PASS held buttons, release, cancellation, multitouch, pause and no drag steering');
-  await page.locator('#pause').click();await page.locator('#restart-pause').click();
-  // Steer using actual keyboard input. Predict each animal's position when the truck reaches it.
-  let held=null,target=0,nextZ=null,earlySpeed=null,laterSpeed=null,lateSpeed=0,sampledFrames=[];const start=Date.now();
+  // Actual gentle pointer steering; abrupt swerves are intentionally risky at high speed.
+  let target=0,nextZ=null,earlySpeed=null,laterSpeed=null,sampledFrames=[];const start=Date.now();
+  await touch('touchStart');
   while(Date.now()-start<105000){
     const s=await state();if(s.mode==='finished')break;
-    if(s.z < -50 && earlySpeed===null)earlySpeed=s.speed;
-    if(s.z < -130 && laterSpeed===null)laterSpeed=s.speed;
-    if(s.z < -200)lateSpeed=Math.max(lateSpeed,s.speed);
-    sampledFrames.push(s.render);
-
+    if(s.z < -50&&earlySpeed===null)earlySpeed=s.speed;if(s.z < -130&&laterSpeed===null)laterSpeed=s.speed;sampledFrames.push(s.render);
     const next=s.obstacles.filter(o=>o.z<s.z-1.3).sort((a,b)=>b.z-a.z)[0];
-    if(next?.z!==nextZ){nextZ=next?.z;const distance=Math.max(0,s.z-(next?.z??s.z)-1.7);const v=Math.max(s.speed,5);const arrival=distance/v;const obstacleX=next?.animal?Math.sin((s.elapsed+arrival)*.72+next.phase)*2.65:next?.x;target=next?(obstacleX>=0?-1.9:1.9):0;}
-    const key=s.x<target-.18?'d':s.x>target+.18?'a':null;
-    if(key!==held){if(held)await page.keyboard.up(held);if(key)await page.keyboard.down(key);held=key;}
-    await page.waitForTimeout(80);
+    if(next?.z!==nextZ){nextZ=next?.z;const arrival=Math.max(0,s.z-(next?.z??s.z)-1.7)/Math.max(s.speed,10);const obstacleX=next?.animal?Math.sin((s.elapsed+arrival)*.72+next.phase)*2.65:next?.x;target=next?(obstacleX>=0?-1.8:1.8):0;}
+    const limit=.42+Math.abs(s.vx??0)*.08;const goal=s.x+Math.max(-limit,Math.min(limit,target-s.x));
+    await touch('touchMove',195+goal/7.2*390);await page.waitForTimeout(60);
   }
-  if(held)await page.keyboard.up(held);
-  assert.ok(laterSpeed>earlySpeed+2,'Middle section is faster than the start');assert.ok(lateSpeed>laterSpeed*1.6,'Final section is much faster');
+  await touch('touchEnd');
+  assert.ok(earlySpeed>9,'Faster start');assert.ok(laterSpeed>24&&laterSpeed>earlySpeed*1.7,'Very fast by halfway');
   assert.ok(sampledFrames.every(f=>Math.abs(f.cameraZ-f.z-10.7)<1e-5),'Camera follows the same interpolated pose without Z lag');
-  assert.ok(Math.max(...sampledFrames.map(f=>f.carScreenY))-Math.min(...sampledFrames.map(f=>f.carScreenY))<.015,'Car stays stable vertically in the camera');
-  console.log('PASS normal / fast / very fast speed and stable camera',earlySpeed,laterSpeed,lateSpeed);
+  assert.ok(Math.max(...sampledFrames.map(f=>f.carScreenY))-Math.min(...sampledFrames.map(f=>f.carScreenY))<.02,'Car stays stable vertically in the camera');
+  console.log('PASS faster start / fast halfway and stable camera',earlySpeed,laterSpeed);
   const final=await state();assert.equal(final.mode,'finished');assert.ok(final.z<=-240,'Full bridge crossed');assert.ok(final.cargo>0,'Some fruit reaches the finish');assert.ok(await page.locator('#end-screen').isVisible());
   console.log('PASS playable finish',final.cargo,'fruit,',final.obstaclesHit,'impacts');await page.screenshot({path:'/tmp/gamequacau-finish.png'});
   await page.locator('#again').click();assert.equal((await state()).cargo,24);assert.equal((await state()).mode,'playing');

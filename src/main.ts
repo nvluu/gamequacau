@@ -23,7 +23,8 @@ let x = 0, z = 0, vx = 0, speed = 0, roll = 0, pitch = 0, shake = 0, hitCooldown
 let retained = TOTAL, elapsed = 0, noticeTimer = 0, accumulator = 0, ready = false;
 const audio = new GameAudio();
 const input = { left: false, right: false };
-const pointerIds = new Map<'left' | 'right', number>();
+let drag: { id:number; startX:number; carX:number; targetX:number } | undefined;
+let turnCooldown=0, turnJolts=0, suppressClick=false;
 const heldKeys = new Set<string>();
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#c5dfd7');
@@ -317,7 +318,7 @@ function resetPhysics() {
     fruits.push({mesh:fruit,body,lost:false,previousPosition:fruit.position.clone(),position:fruit.position.clone(),previousRotation:new THREE.Quaternion(),rotation:new THREE.Quaternion()});
   }
   x = z = vx = speed = roll = pitch = shake = elapsed = hitCooldown = noticeTimer = accumulator = 0;
-  retained = TOTAL;
+  retained = TOTAL;turnCooldown=turnJolts=0;
   obstacles.forEach(o=> {o.hit=false; o.warned=false; o.mesh.rotation.set(0,0,0);});
   truck.position.set(0,0,0); truck.rotation.set(0,0,0);
   previousTruck.position.copy(truck.position);currentTruck.position.copy(truck.position);
@@ -351,15 +352,27 @@ function step() {
   previousTruck.position.copy(currentTruck.position);previousTruck.quaternion.copy(currentTruck.quaternion);previousElapsed=currentElapsed;
   for(const f of fruits){f.previousPosition.copy(f.position);f.previousRotation.copy(f.rotation);}
   simulationSteps++;
-  elapsed += STEP; hitCooldown = Math.max(0,hitCooldown-STEP);
+  elapsed += STEP; hitCooldown = Math.max(0,hitCooldown-STEP);turnCooldown=Math.max(0,turnCooldown-STEP);
   if(noticeTimer>0) { noticeTimer-=STEP; if(noticeTimer<=0) $('impact').classList.remove('show'); }
   const steering = Number(input.right) - Number(input.left);
   const progress=THREE.MathUtils.clamp(-z/FINISH,0,1);
-  const targetSpeed=progress<.7 ? 7+6*THREE.MathUtils.smoothstep(progress,.3,.65) : 13+11*THREE.MathUtils.smoothstep(progress,.72,.96);
-  speed+=THREE.MathUtils.clamp(targetSpeed-speed,-9*STEP,(progress<.7?3:9)*STEP);
-  const steeringSpeed=3.2+Math.max(0,speed-6)*.13;
-  const targetVx = steering * steeringSpeed;
-  vx += (targetVx-vx) * STEP * (steering===0?18:8);
+  const targetSpeed=10+16*THREE.MathUtils.smoothstep(progress,.12,.5);
+  speed+=THREE.MathUtils.clamp(targetSpeed-speed,-10*STEP,8*STEP);
+  const steeringSpeed=4.2+Math.max(0,speed-10)*.12;
+  const targetVx=drag?THREE.MathUtils.clamp((drag.targetX-x)*8,-steeringSpeed,steeringSpeed):steering*steeringSpeed;
+  const oldVx=vx;
+  vx+=(targetVx-vx)*STEP*((drag||steering!==0)?8:18);
+  const lateralAcceleration=(vx-oldVx)/STEP;
+  if(speed>18&&Math.abs(lateralAcceleration)>35&&turnCooldown===0) {
+    turnCooldown=.9;turnJolts++;shake=Math.max(shake,.28);
+    const exposed=fruits.slice(12).filter(f=>!f.lost);
+    for(let i=0;i<Math.min(3,exposed.length);i++) {
+      const f=exposed[(i+turnJolts*3)%exposed.length];
+      f.body.applyImpulse({x:-Math.sign(lateralAcceleration)*.11,y:.10,z:0},true);
+      f.body.applyTorqueImpulse({x:0,y:0,z:Math.sign(lateralAcceleration)*.012},true);
+    }
+    notice('ĐÁNH LÁI GẤP! THANH LONG DỄ RƠI');
+  }
   x += vx*STEP; z -= speed*STEP;
   if(Math.abs(x) > 2.63) {
     x = Math.sign(x)*2.63; vx *= -.2;
@@ -370,7 +383,7 @@ function step() {
     }
   }
   shake *= .95;
-  const targetRoll = THREE.MathUtils.clamp(-vx*.025,-.085,.085) + Math.sin(elapsed*29)*shake*.16;
+  const targetRoll = THREE.MathUtils.clamp(-vx*.025,-.14,.14) + Math.sin(elapsed*29)*shake*.16;
   roll += (targetRoll-roll)*.15; pitch = Math.sin(elapsed*23)*shake*.06;
   truck.position.set(x,Math.sin(elapsed*25)*shake*.035, z);
   truck.rotation.set(pitch,THREE.MathUtils.clamp(-vx*.025,-.11,.11),roll);
@@ -382,8 +395,10 @@ function step() {
     if(!o.hit && hitCooldown<=0 && Math.abs((z-1.05)-o.z)<.9 && Math.abs(x-o.x)<.84+o.radius) collision(o);
   }
   // Model grip from the fruit crate: cargo follows gentle driving, but is free during a jolt.
-  if(shake < .045) for(const f of fruits) {
-    if(f.lost) continue;
+  for(let i=0;i<fruits.length;i++) {
+    const f=fruits[i];
+    // Lower fruit is supported by the crate; the exposed top layer is vulnerable to swerves.
+    if(f.lost||shake>=(i < 12 ? .4 : .045))continue;
     const p=f.body.translation();
     if(Math.abs(p.x-x)<.88 && Math.abs(p.z-z-.45)<1.03 && p.y<1.95) {
       const v=f.body.linvel();
@@ -404,14 +419,11 @@ function step() {
   else if(retained <= 0) finish(false);
 }
 function resetInput() {
-  input.left=input.right=false;heldKeys.clear();
-  const active=[...pointerIds];pointerIds.clear();
-  for(const [id,pointer] of active){const button=$(id);button.classList.remove('pressed');if(button.hasPointerCapture(pointer))button.releasePointerCapture(pointer);}
+  input.left=input.right=false;heldKeys.clear();suppressClick ||= !!drag;const pointer=drag?.id;drag=undefined;
+  if(pointer!==undefined&&$('game').hasPointerCapture(pointer))$('game').releasePointerCapture(pointer);
 }
 function syncInput() {
-  input.left=pointerIds.has('left')||heldKeys.has('arrowleft')||heldKeys.has('a');
-  input.right=pointerIds.has('right')||heldKeys.has('arrowright')||heldKeys.has('d');
-  (['left','right'] as const).forEach(id=>$(id).classList.toggle('pressed',input[id]));
+  input.left=heldKeys.has('arrowleft')||heldKeys.has('a');input.right=heldKeys.has('arrowright')||heldKeys.has('d');
 }
 function startGame() {
   if(!ready) return;
@@ -437,7 +449,7 @@ function finish(arrived: boolean) {
   $('end-screen').classList.remove('hidden');
   $('end-eyebrow').textContent=arrived?'CHUYẾN XE HOÀN THÀNH':'HÀNG RƠI HẾT RỒI';
   $('end-title').textContent=arrived?'Về nhà rồi!':'Thử lại một chuyến?';
-  $('end-description').textContent=arrived?'Một chuyến đi nhỏ, mang theo cả mùa ngọt.':'Giữ nút trái/phải để né vật cản và chú ý gà, chó qua đường nhé.';
+  $('end-description').textContent=arrived?'Một chuyến đi nhỏ, mang theo cả mùa ngọt.':'Kéo nhẹ tay để né vật cản. Ở tốc độ cao, đánh lái gấp cũng làm rơi hàng nhé.';
   $('end-count').textContent=String(retained); $('best').textContent=`Kỷ lục của bạn: ${bestScore(arrived?retained:0)} / ${TOTAL} quả`;
   if(arrived) {tone(660,.25); setTimeout(()=>tone(880,.35),140);} else tone(150,.4);
   $('again').focus();
@@ -447,16 +459,21 @@ function showHome() {
   ['intro','footer'].forEach(id=>$(id).classList.remove('hidden')); $('start').focus();
 }
 function bindControls() {
-  for(const id of ['left','right'] as const) {
-    const button=$(id);
-    button.addEventListener('pointerdown',e=>{
-      if(mode!=='playing'||pointerIds.has(id))return;
-      e.preventDefault();button.setPointerCapture(e.pointerId);pointerIds.set(id,e.pointerId);syncInput();
-    });
-    const release=(e:PointerEvent)=>{if(pointerIds.get(id)===e.pointerId){pointerIds.delete(id);syncInput();}};
-    button.addEventListener('pointerup',release);button.addEventListener('pointercancel',release);button.addEventListener('lostpointercapture',release);
-    button.addEventListener('contextmenu',e=>e.preventDefault());
-  }
+  const surface=$('game');
+  // Releasing a drag after a modal opens must not click the newly displayed button underneath.
+  surface.addEventListener('pointerdown',()=>{suppressClick=false;},true);
+  surface.addEventListener('click',e=>{if(suppressClick){e.preventDefault();e.stopImmediatePropagation();suppressClick=false;}},true);
+  surface.addEventListener('pointerdown',e=>{
+    if(mode!=='playing'||drag||(e.target as HTMLElement).closest('button,a'))return;
+    e.preventDefault();surface.setPointerCapture(e.pointerId);drag={id:e.pointerId,startX:e.clientX,carX:x,targetX:x};$('drive-hint').style.opacity='0';
+  });
+  surface.addEventListener('pointermove',e=>{
+    if(!drag||e.pointerId!==drag.id)return;e.preventDefault();
+    drag.targetX=THREE.MathUtils.clamp(drag.carX+(e.clientX-drag.startX)/surface.clientWidth*7.2,-2.6,2.6);
+  });
+  const release=(e:PointerEvent)=>{if(drag?.id===e.pointerId)drag=undefined;};
+  surface.addEventListener('pointerup',release);surface.addEventListener('pointercancel',release);surface.addEventListener('lostpointercapture',release);
+  surface.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('keydown',e=> {
     const key=e.key.toLowerCase();
     if(key==='escape'||key==='p'){if(e.repeat)return;if(mode==='playing')pauseGame();else if(mode==='paused')resumeGame();return;}
@@ -524,7 +541,7 @@ async function init() {
     ready=true; $('start').removeAttribute('disabled'); $('start').innerHTML='<span>LÊN XE THÔI</span><span>→</span>';
     animate();
     // Read-only development diagnostics used by the browser smoke tests.
-    if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frameMs,pixelRatio,renderAlpha,simulationSteps,render:{...renderDiagnostics},audio:audio.status(),animals:obstacles.filter(o=>o.animal).map(o=>({kind:o.animal,phase:o.phase,x:o.x,z:o.z,hit:o.hit})),obstacles:obstacles.map(o=>({x:o.x,z:o.z,hit:o.hit,animal:o.animal,phase:o.phase})),mode,x,z,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});
+    if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frameMs,pixelRatio,renderAlpha,simulationSteps,turnJolts,dragging:!!drag,render:{...renderDiagnostics},audio:audio.status(),animals:obstacles.filter(o=>o.animal).map(o=>({kind:o.animal,phase:o.phase,x:o.x,z:o.z,hit:o.hit})),obstacles:obstacles.map(o=>({x:o.x,z:o.z,hit:o.hit,animal:o.animal,phase:o.phase})),mode,x,z,vx,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});
   } catch(error) {
     console.error(error); $('error').textContent='Chưa khởi động được đồ họa 3D. Hãy thử Chrome/Safari mới nhất, bật tăng tốc phần cứng rồi tải lại trang.';$('error').classList.remove('hidden');
     $('start').innerHTML='<span>KHÔNG THỂ KHỞI ĐỘNG</span>';
