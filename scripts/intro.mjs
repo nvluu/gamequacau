@@ -32,7 +32,12 @@ try {
     const mainButton=await page.locator('#start').boundingBox();
     assert.ok(mainButton.width<stage.width*.8,'Narrower home button');
     assert.ok(mainButton.y<stage.y+stage.height*.77,'Raised home button');
+    const homeInfo=await page.locator('#about-open').boundingBox();
     await page.locator('#about-open').click();
+    const back=await page.locator('#about-back').boundingBox(),aboutButton=await page.locator('#about-start').boundingBox();
+    assert.ok(Math.abs(back.y-homeInfo.y)<1,'Back and info buttons share Y position');
+    assert.ok(Math.abs(aboutButton.y-mainButton.y)<1,'Start buttons share Y position');
+    assert.equal((await page.locator('#about-start').innerText()).replace(/\s+/g,' ').trim(),'LÊN XE THÔI →');
   }
   await page.setViewportSize({width:390,height:844});await page.waitForTimeout(150);
   await page.locator('#about-screen').evaluate(el=>el.scrollTop=0);

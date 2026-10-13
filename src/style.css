@@ -17,3 +17,14 @@ html,body,#game{overscroll-behavior:none}#controls .drive-hint{padding:9px 12px;
 
 .about-content .video-link{padding:10px 14px;border:1px solid #214f4526;font-size:10px;text-decoration:none;border-radius:12px}
 @media(max-width:320px){.topbar{gap:5px}.brand{gap:6px;font-size:10px;letter-spacing:1px}.brand small{letter-spacing:.6px}.about-button{padding:9px 8px;font-size:8px}}
+
+/* Match the home screen button positions without rebuilding the 3D scene. */
+#about-screen{padding:0;overflow:hidden}
+.about-header{position:absolute;top:5%;left:7%;right:7%;height:35px;display:flex;align-items:center;padding:0;background:none}
+.about-content{position:absolute;top:14%;left:7%;right:7%;height:57%;gap:8px}
+.about-content .video-card{height:calc(100% - 120px);width:auto;aspect-ratio:9/16;flex-shrink:0}
+.about-content .video-caption{font-size:11px;padding:8px 10px;flex-shrink:0}
+.about-content .video-link{flex-shrink:0}
+#about-start{position:absolute;top:73%;left:13%;width:74%;margin:0}
+@media(max-height:650px){.about-content .video-caption{font-size:10px;padding:7px 9px}}
+.about-button{height:34px;display:flex;align-items:center;justify-content:center}
