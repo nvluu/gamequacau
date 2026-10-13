@@ -187,8 +187,9 @@ function signTexture(text: string, background: string, color: string, label = fa
 function addTruckLettering() {
   const material=new THREE.MeshBasicMaterial({map:signTexture('Phương Tấu Hài','#eac252','#183f36',true),toneMapped:false,fog:false});
   const rear=new THREE.Mesh(new THREE.PlaneGeometry(1.6,.4),material);rear.position.set(0,1.15,1.516);truck.add(rear);
+  const sideMaterial=new THREE.MeshBasicMaterial({map:signTexture('đời tài nó bạc','#eac252','#183f36',true),toneMapped:false,fog:false});
   for(const side of [-1,1]) {
-    const label=new THREE.Mesh(new THREE.PlaneGeometry(1.84,.4),material);
+    const label=new THREE.Mesh(new THREE.PlaneGeometry(1.84,.4),side===1?sideMaterial:material);
     label.position.set(side*.907,1.15,.43);label.rotation.y=side*Math.PI/2;truck.add(label);
   }
 }
