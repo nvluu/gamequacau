@@ -301,7 +301,32 @@ function updateAnimals(time = elapsed, handleWarnings = true) {
     if(handleWarnings&&!o.warned&&mode==='playing'&&o.z>z-15&&o.z<z-2) {o.warned=true;audio.animal(o.animal);notice(o.animal==='dog'?'CÓ CHÓ QUA CẦU — KÉO ĐỂ NÉ NHÉ':'GÀ ĐANG QUA ĐƯỜNG!');}
   }
 }
+let introBounceTime=-1;
+const introRaycaster=new THREE.Raycaster(),introPointer=new THREE.Vector2();
+function bounceIntroTruck(event: MouseEvent) {
+  if(!ready||mode!=='intro'||showingAbout||introBounceTime>=0||(event.target as HTMLElement).closest('button,a'))return;
+  const rect=renderer.domElement.getBoundingClientRect();
+  introPointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);
+  scene.updateMatrixWorld(true);introRaycaster.setFromCamera(introPointer,camera);
+  if(introRaycaster.intersectObjects([truck,...fruitInstances],true).length)introBounceTime=0;
+}
+function animateIntroBounce(dt: number) {
+  if(introBounceTime<0)return;
+  introBounceTime=Math.min(1,introBounceTime+dt);
+  const t=introBounceTime,fade=(1-t)*(1-t);
+  const lift=Math.sin(Math.PI*t)*.16;
+  truck.position.y=lift;truck.rotation.z=Math.sin(t*Math.PI*4)*fade*.035;
+  fruits.forEach((f,i)=> {
+    f.mesh.position.copy(f.position);f.mesh.quaternion.copy(f.rotation);
+    f.mesh.position.y+=lift+Math.sin(t*Math.PI*5+i*.7)*Math.sin(Math.PI*t)*fade*.065;
+    f.mesh.position.x+=Math.sin(t*Math.PI*4+i)*Math.sin(Math.PI*t)*fade*.025;
+    tempEuler.set(Math.sin(t*Math.PI*5+i)*fade*.07,0,truck.rotation.z);
+    tempQ.setFromEuler(tempEuler);f.mesh.quaternion.premultiply(tempQ);
+  });
+  if(t===1){truck.position.y=0;truck.rotation.z=0;introBounceTime=-1;}
+}
 function resetPhysics() {
+  introBounceTime=-1;
   fruits.forEach(f=> { scene.remove(f.mesh); world.removeRigidBody(f.body); }); fruits = [];
   if(truckBody) world.removeRigidBody(truckBody);
   truckBody = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(0, 0, 0));
@@ -503,6 +528,7 @@ function bindControls() {
   });
   const release=(e:PointerEvent)=>{if(drag?.id===e.pointerId)drag=undefined;};
   surface.addEventListener('pointerup',release);surface.addEventListener('pointercancel',release);surface.addEventListener('lostpointercapture',release);
+  surface.addEventListener('click',bounceIntroTruck);
   surface.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('blur',()=>{resetInput();pauseGame();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
@@ -537,7 +563,7 @@ function animate() {
   renderer.setAnimationLoop((time: number)=> {
     const dt=Math.min(Math.max((time-lastTime)/1000,0),.1);lastTime=time;
     frameMs=frameMs*.95+dt*1000*.05;
-    if(mode==='intro'&&elapsed>=1.3)return;
+    if(mode==='intro'&&elapsed>=1.3&&introBounceTime<0)return;
     if(mode==='playing'&&elapsed>2&&frameMs>32)slowFrames++;else slowFrames=Math.max(0,slowFrames-1);
     if(slowFrames>60&&pixelRatio>.85){pixelRatio=.85;renderer.setPixelRatio(pixelRatio);resize();slowFrames=0;}
     if(mode==='playing') {
@@ -551,7 +577,7 @@ function animate() {
         world.step();elapsed+=STEP;
         for(const f of fruits){const p=f.body.translation(),q=f.body.rotation();f.position.set(p.x,p.y,p.z);f.rotation.set(q.x,q.y,q.z,q.w);f.previousPosition.copy(f.position);f.previousRotation.copy(f.rotation);f.mesh.position.copy(f.position);f.mesh.quaternion.copy(f.rotation);}
       }
-      renderTime=elapsed;
+      animateIntroBounce(dt);renderTime=elapsed;
     }
     updateFruitBatch();updateRiver(renderTime);groundShadow.position.set(truck.position.x,-.029,truck.position.z);
     renderer.render(scene,camera);
@@ -573,7 +599,7 @@ async function init() {
     ready=true; $('about-start').removeAttribute('disabled'); $('start').removeAttribute('disabled'); $('start').innerHTML='<span>LÊN XE THÔI</span><span>→</span>';
     animate();
     // Read-only development diagnostics used by the browser smoke tests.
-    if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frameMs,pixelRatio,renderAlpha,simulationSteps,turnJolts,dragging:!!drag,render:{...renderDiagnostics},audio:audio.status(),animals:obstacles.filter(o=>o.animal).map(o=>({kind:o.animal,phase:o.phase,z:o.z,hit:o.hit,...sampleAnimalRoute(o.route!,elapsed)})),obstacles:obstacles.map(o=>({x:o.x,z:o.z,hit:o.hit,animal:o.animal,phase:o.phase})),mode,x,z,vx,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});
+    if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({introBounce:{time:introBounceTime,y:truck.position.y,fruitY:fruits[12]?.mesh.position.y},drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frameMs,pixelRatio,renderAlpha,simulationSteps,turnJolts,dragging:!!drag,render:{...renderDiagnostics},audio:audio.status(),animals:obstacles.filter(o=>o.animal).map(o=>({kind:o.animal,phase:o.phase,z:o.z,hit:o.hit,...sampleAnimalRoute(o.route!,elapsed)})),obstacles:obstacles.map(o=>({x:o.x,z:o.z,hit:o.hit,animal:o.animal,phase:o.phase})),mode,x,z,vx,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});
   } catch(error) {
     console.error(error); $('error').textContent='Chưa khởi động được đồ họa 3D. Hãy thử Chrome/Safari mới nhất, bật tăng tốc phần cứng rồi tải lại trang.';$('error').classList.remove('hidden');
     $('start').innerHTML='<span>KHÔNG THỂ KHỞI ĐỘNG</span>';
