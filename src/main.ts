@@ -422,11 +422,27 @@ function resetInput() {
   input.left=input.right=false;suppressClick ||= !!drag;const pointer=drag?.id;drag=undefined;
   if(pointer!==undefined&&$('game').hasPointerCapture(pointer))$('game').releasePointerCapture(pointer);
 }
+let showingAbout=false;
+function setAbout(open: boolean) {
+  if(mode!=='intro')return;
+  showingAbout=open;
+  if(!open)stopIntroVideo();
+  $('game').classList.toggle('showing-about',open);
+  $('about-screen').classList.toggle('hidden',!open);
+  ['intro','topbar','footer'].forEach(id=>$(id).classList.toggle('hidden',open));
+  $(open?'about-back':'about-open').focus();
+}
+function leaveAbout() {
+  stopIntroVideo();showingAbout=false;
+  $('game').classList.remove('showing-about');
+  $('about-screen').classList.add('hidden');
+  $('topbar').classList.remove('hidden');
+}
 function stopIntroVideo() {
   $('video-card').querySelector('iframe')?.remove();$('video-play').classList.remove('hidden');
 }
 function playIntroVideo() {
-  if(mode!=='intro'||$('video-card').querySelector('iframe'))return;
+  if(mode!=='intro'||!showingAbout||$('video-card').querySelector('iframe'))return;
   const frame=document.createElement('iframe');
   frame.src='https://www.youtube-nocookie.com/embed/m5MuKcskVaU?autoplay=1&playsinline=1&rel=0';
   frame.title='Video xe chở thanh long';frame.allow='autoplay; encrypted-media; picture-in-picture; fullscreen';
@@ -435,8 +451,8 @@ function playIntroVideo() {
 }
 function startGame() {
   if(!ready) return;
-  stopIntroVideo();resetPhysics(); mode='playing';
-  ['intro','end-screen','pause-screen','footer'].forEach(id=>$(id).classList.add('hidden'));
+  leaveAbout();resetPhysics(); mode='playing';
+  ['intro','about-open','end-screen','pause-screen','footer'].forEach(id=>$(id).classList.add('hidden'));
   ['hud','controls','pause'].forEach(id=>$(id).classList.remove('hidden'));
   camera.position.set(0,6.8,10.7); camera.lookAt(0,.7,-7);
   void audio.unlock().then(()=>audio.setRunning(mode==='playing'));
@@ -463,8 +479,8 @@ function finish(arrived: boolean) {
   $('again').focus();
 }
 function showHome() {
-  resetPhysics(); mode='intro'; audio.setRunning(false); ['end-screen','pause-screen','hud','controls','pause'].forEach(id=>$(id).classList.add('hidden'));
-  ['intro','footer'].forEach(id=>$(id).classList.remove('hidden')); $('start').focus();
+  leaveAbout();resetPhysics(); mode='intro'; audio.setRunning(false); ['end-screen','pause-screen','hud','controls','pause'].forEach(id=>$(id).classList.add('hidden'));
+  ['intro','about-open','footer'].forEach(id=>$(id).classList.remove('hidden')); $('start').focus();
 }
 function bindControls() {
   const surface=$('game');
@@ -484,6 +500,9 @@ function bindControls() {
   surface.addEventListener('contextmenu',e=>e.preventDefault());
   window.addEventListener('blur',()=>{resetInput();pauseGame();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
+  $('about-open').addEventListener('click',()=>setAbout(true));
+  $('about-back').addEventListener('click',()=>setAbout(false));
+  $('about-start').addEventListener('click',startGame);
   $('video-play').addEventListener('click',playIntroVideo);
   const posterImage=$('video-play').querySelector('img')!;
   posterImage.addEventListener('error',()=>posterImage.classList.add('hidden'));
@@ -545,7 +564,7 @@ async function init() {
     await RAPIER.init(); world=new RAPIER.World({x:0,y:-9.81,z:0}); world.timestep=STEP;
     makeBackdrop();makeBridge();batchStatic(art);makeTruck();addTruckLettering();batchStatic(truck);buildObstacles();makeFruitBatch();resetPhysics();bindControls();
     new ResizeObserver(resize).observe($('game')); resize();
-    ready=true; $('start').removeAttribute('disabled'); $('start').innerHTML='<span>LÊN XE THÔI</span><span>→</span>';
+    ready=true; $('about-start').removeAttribute('disabled'); $('start').removeAttribute('disabled'); $('start').innerHTML='<span>LÊN XE THÔI</span><span>→</span>';
     animate();
     // Read-only development diagnostics used by the browser smoke tests.
     if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frameMs,pixelRatio,renderAlpha,simulationSteps,turnJolts,dragging:!!drag,render:{...renderDiagnostics},audio:audio.status(),animals:obstacles.filter(o=>o.animal).map(o=>({kind:o.animal,phase:o.phase,x:o.x,z:o.z,hit:o.hit})),obstacles:obstacles.map(o=>({x:o.x,z:o.z,hit:o.hit,animal:o.animal,phase:o.phase})),mode,x,z,vx,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});

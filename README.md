@@ -15,7 +15,7 @@ Mini game 3D chạy trên web, ưu tiên màn hình dọc 9:16. Lái xe chở 24
 
 ## Video trên màn hình đầu
 
-Video Shorts `m5MuKcskVaU` được nhúng trong khung dọc. Ban đầu chỉ tải ảnh thumbnail; bấm **Xem video gốc** mới tạo iframe YouTube (privacy-enhanced domain). Bấm **Lên xe** sẽ gỡ iframe để dừng video/âm thanh và giải phóng tài nguyên. Có link mở trực tiếp trên YouTube. Game chỉ có một màn; nút kết thúc ghi **Chơi lại**.
+Màn hình chính giữ cảnh xe và cầu, với nút **Lên xe thôi** được đưa cao hơn và thu hẹp. Nút **ⓘ Giới thiệu** mở lớp giao diện riêng, không tải lại cảnh 3D hay thay đổi gameplay. Video Shorts `m5MuKcskVaU` được nhúng trong khung dọc 9:16 trên màn hình Giới thiệu; màn hình nhỏ có thể cuộn. **← Quay lại** trở về màn hình chính; **Chơi ngay →** bắt đầu game. Ban đầu chỉ tải ảnh thumbnail; bấm **Xem video gốc** mới tạo iframe YouTube (privacy-enhanced domain). Bấm **Quay lại**, **Chơi ngay** hoặc **Lên xe** sẽ gỡ iframe để dừng video/âm thanh và giải phóng tài nguyên. Có link mở trực tiếp trên YouTube. Game chỉ có một màn; nút kết thúc ghi **Chơi lại**.
 
 Kiểm tra giao diện/nhúng bằng `CHROMIUM_PATH=/usr/bin/chromium npm run test:intro` khi dev server đang chạy. Bài kiểm tra dùng fixture cho player bên ngoài, kiểm tra URL, tỷ lệ dọc, caption, teardown và chuột; không xác minh streaming thật từ YouTube. Cloud cần cho phép `www.youtube.com`, `www.youtube-nocookie.com`, `i.ytimg.com`, `s.ytimg.com`, `www.gstatic.com` và `*.googlevideo.com` để kiểm tra phát video thật. Các miền đã được lưu vào bản nháp cấu hình; cần review/save/publish để áp dụng. Việc phát còn phụ thuộc quyền nhúng của video trên YouTube.
 
