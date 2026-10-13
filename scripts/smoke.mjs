@@ -41,7 +41,7 @@ try {
     const s=await state();if(s.mode==='finished')break;
     if(s.z < -50&&earlySpeed===null)earlySpeed=s.speed;if(s.z < -130&&laterSpeed===null)laterSpeed=s.speed;sampledFrames.push(s.render);
     const next=s.obstacles.filter(o=>o.z<s.z-1.3).sort((a,b)=>b.z-a.z)[0];
-    if(next?.z!==nextZ){nextZ=next?.z;const arrival=Math.max(0,s.z-(next?.z??s.z)-1.7)/Math.max(s.speed,10);const obstacleX=next?.animal?Math.sin((s.elapsed+arrival)*.72+next.phase)*2.65:next?.x;target=next?(obstacleX>=0?-1.8:1.8):0;}
+    if(next?.z!==nextZ){nextZ=next?.z;const arrival=Math.max(0,s.z-(next?.z??s.z)-1.7)/Math.max(s.speed,10);const obstacleX=next?.animal?Math.max(-2.65,Math.min(2.65,next.x+(s.animals.find(a=>a.z===next.z)?.vx??0)*arrival)):next?.x;target=next?(obstacleX>=0?-1.8:1.8):0;}
     const limit=.42+Math.abs(s.vx??0)*.08;const goal=s.x+Math.max(-limit,Math.min(limit,target-s.x));
     await touch('touchMove',195+goal/7.2*390);await page.waitForTimeout(60);
   }

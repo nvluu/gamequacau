@@ -1,7 +1,7 @@
 {
   "name": "dragon-fruit-bridge",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -11,7 +11,8 @@
     "deploy:pages": "node scripts/deploy-pages.mjs",
     "test:smoothness": "node scripts/smoothness.mjs",
     "test:swerve": "node scripts/swerve.mjs",
-    "test:intro": "node scripts/intro.mjs"
+    "test:intro": "node scripts/intro.mjs",
+    "test:obstacles": "node scripts/obstacles.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0",

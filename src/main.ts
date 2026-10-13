@@ -1,3 +1,4 @@
+import { OBSTACLE_LANES, createAnimalRoute, sampleAnimalRoute, type AnimalWaypoint } from './obstacle-motion';
 import '@fontsource/be-vietnam-pro/vietnamese-400.css';
 import '@fontsource/be-vietnam-pro/vietnamese-600.css';
 import '@fontsource/be-vietnam-pro/vietnamese-700.css';
@@ -16,7 +17,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const TOTAL = 24, FINISH = 240, STEP = 1 / 60;
 type Mode = 'intro' | 'playing' | 'paused' | 'finished';
 type Fruit = { mesh: THREE.Group; body: RAPIER.RigidBody; lost: boolean; previousPosition: THREE.Vector3; position: THREE.Vector3; previousRotation: THREE.Quaternion; rotation: THREE.Quaternion };
-type Obstacle = { mesh: THREE.Group; x: number; z: number; radius: number; hit: boolean; animal?: 'dog' | 'chicken'; legs?: THREE.Object3D[]; warned?: boolean; phase?: number };
+type Obstacle = { mesh: THREE.Group; x: number; z: number; radius: number; hit: boolean; animal?: 'dog' | 'chicken'; legs?: THREE.Object3D[]; warned?: boolean; phase?: number; route?: AnimalWaypoint[] };
 let mode: Mode = 'intro', world: RAPIER.World, truckBody: RAPIER.RigidBody;
 let fruits: Fruit[] = [], obstacles: Obstacle[] = [];
 let x = 0, z = 0, vx = 0, speed = 0, roll = 0, pitch = 0, shake = 0, hitCooldown = 0;
@@ -250,7 +251,7 @@ function buildObstacles() {
     [-.9,-139,'crate'],[1.8,-159,'barrier'],[-2,-163,'crate'],[.2,-188,'rock'],
     [2,-189,'crate'],[-1.9,-226,'barrier'],[.4,-219,'rock'],
   ];
-  // Keep a few fixed obstacles, and leave room around moving animals.
+  // Keep longitudinal spacing and leave room around moving animals.
   layout.filter((_,i)=>![2,4,6,8,10,12,14].includes(i)).forEach(o => makeObstacle(...o));
   makeAnimal(-52,'chicken',.2);makeAnimal(-84,'dog',1.4);makeAnimal(-113,'chicken',2.3);
   makeAnimal(-144,'dog',.5);makeAnimal(-174,'chicken',1.9);makeAnimal(-207,'dog',2.6);
@@ -286,14 +287,14 @@ function makeAnimal(pz: number, kind: 'dog' | 'chicken', phase: number) {
     box(leg,[.065,.3,.065],[0,-.15,0],kind==='dog'?accent:m.truck);
     box(leg,[.16,.055,.09],[.04,-.31,0],kind==='dog'?accent:m.truck);batchStatic(leg);g.add(leg);legs.push(leg);
   }
-  g.position.z=pz;scene.add(g);obstacles.push({mesh:g,x:0,z:pz,radius:kind==='dog'?.65:.45,hit:false,animal:kind,legs,phase,warned:false});
+  g.position.z=pz;scene.add(g);obstacles.push({mesh:g,x:0,z:pz,radius:kind==='dog'?.65:.45,hit:false,animal:kind,legs,phase,route:createAnimalRoute(),warned:false});
 }
 function updateAnimals(time = elapsed, handleWarnings = true) {
   for(const o of obstacles) {
     o.mesh.visible=o.z>z-95&&o.z<z+16;
     if(!o.animal)continue;
-    const t=time*.72+(o.phase??0), direction=Math.cos(t)>=0?1:-1;
-    const animalX=Math.sin(t)*2.65;if(handleWarnings)o.x=animalX;o.mesh.position.x=animalX;o.mesh.rotation.y=direction>0?0:Math.PI;
+    const {x:animalX,direction}=sampleAnimalRoute(o.route!,time);
+    if(handleWarnings)o.x=animalX;o.mesh.position.x=animalX;o.mesh.rotation.y=direction>0?0:Math.PI;
     o.mesh.position.y=Math.abs(Math.sin(time*10))*.045;
     o.legs?.forEach((leg,i)=>leg.rotation.z=Math.sin(time*10+i*Math.PI)*.45);
     if(handleWarnings&&!o.warned&&mode==='playing'&&o.z>z-15&&o.z<z-2) {o.warned=true;audio.animal(o.animal);notice(o.animal==='dog'?'CÓ CHÓ QUA CẦU — KÉO ĐỂ NÉ NHÉ':'GÀ ĐANG QUA ĐƯỜNG!');}
@@ -319,7 +320,11 @@ function resetPhysics() {
   }
   x = z = vx = speed = roll = pitch = shake = elapsed = hitCooldown = noticeTimer = accumulator = 0;
   retained = TOTAL;turnCooldown=turnJolts=0;
-  obstacles.forEach(o=> {o.hit=false; o.warned=false; o.mesh.rotation.set(0,0,0);});
+  obstacles.forEach(o=> {
+    o.hit=false;o.warned=false;o.mesh.rotation.set(0,0,0);
+    if(o.animal)o.route=createAnimalRoute();
+    else {o.x=OBSTACLE_LANES[Math.floor(Math.random()*OBSTACLE_LANES.length)];o.mesh.position.x=o.x;}
+  });
   truck.position.set(0,0,0); truck.rotation.set(0,0,0);
   previousTruck.position.copy(truck.position);currentTruck.position.copy(truck.position);
   previousTruck.quaternion.copy(truck.quaternion);currentTruck.quaternion.copy(truck.quaternion);
@@ -567,7 +572,7 @@ async function init() {
     ready=true; $('about-start').removeAttribute('disabled'); $('start').removeAttribute('disabled'); $('start').innerHTML='<span>LÊN XE THÔI</span><span>→</span>';
     animate();
     // Read-only development diagnostics used by the browser smoke tests.
-    if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frameMs,pixelRatio,renderAlpha,simulationSteps,turnJolts,dragging:!!drag,render:{...renderDiagnostics},audio:audio.status(),animals:obstacles.filter(o=>o.animal).map(o=>({kind:o.animal,phase:o.phase,x:o.x,z:o.z,hit:o.hit})),obstacles:obstacles.map(o=>({x:o.x,z:o.z,hit:o.hit,animal:o.animal,phase:o.phase})),mode,x,z,vx,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});
+    if(import.meta.env.DEV) Object.defineProperty(window,'__game',{value:{state:()=>({drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frameMs,pixelRatio,renderAlpha,simulationSteps,turnJolts,dragging:!!drag,render:{...renderDiagnostics},audio:audio.status(),animals:obstacles.filter(o=>o.animal).map(o=>({kind:o.animal,phase:o.phase,z:o.z,hit:o.hit,...sampleAnimalRoute(o.route!,elapsed)})),obstacles:obstacles.map(o=>({x:o.x,z:o.z,hit:o.hit,animal:o.animal,phase:o.phase})),mode,x,z,vx,speed,cargo:retained,elapsed,fruitCount:fruits.length,obstaclesHit:obstacles.filter(o=>o.hit).length,ready,input:{...input}})}});
   } catch(error) {
     console.error(error); $('error').textContent='Chưa khởi động được đồ họa 3D. Hãy thử Chrome/Safari mới nhất, bật tăng tốc phần cứng rồi tải lại trang.';$('error').classList.remove('hidden');
     $('start').innerHTML='<span>KHÔNG THỂ KHỞI ĐỘNG</span>';
